@@ -1,0 +1,32 @@
+{
+  "name": "chrome-devtools-mcp-bridge",
+  "version": "0.1.0",
+  "description": "Chrome DevTools MCP Bridge - Chrome クラッシュ時の自動再接続とプロジェクト名によるポート解決",
+  "license": "MIT",
+  "author": "book000",
+  "main": "build/index.js",
+  "bin": {
+    "chrome-devtools-mcp-bridge": "build/index.js"
+  },
+  "files": [
+    "build/"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@book000/eslint-config": "1.13.12",
+    "@types/node": "22.13.14",
+    "eslint": "10.0.2",
+    "prettier": "3.5.3",
+    "typescript": "5.9.3"
+  }
+}
