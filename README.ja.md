@@ -1,6 +1,6 @@
 # chrome-mcp-router
 
-[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) のプロキシラッパー。
+[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) のプロキシラッパー。自動再接続とプロジェクトベースの設定機能を追加します。
 
 - **自動再接続**: Chrome のクラッシュを検知し、Chrome が再起動したら自動的に子プロセスを再起動する
 - **プロジェクトルーティング**: ポート番号を直接指定する代わりに、プロジェクト名で Chrome のデバッグ URL を解決できる

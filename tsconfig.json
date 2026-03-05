@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "target": "es2020",
+    "target": "es2022",
     "module": "commonjs",
     "moduleResolution": "Node",
-    "lib": ["ESNext"],
+    "lib": ["es2023"],
     "outDir": "./build",
     "removeComments": true,
     "esModuleInterop": true,

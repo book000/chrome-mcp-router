@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "node",
+      "args": [
+        "/home/tomachi/repos/chrome-mcp-router/build/index.js",
+        "--project",
+        "chrome-mcp-router"
+      ]
+    }
+  }
+}
