@@ -1,49 +1,49 @@
-# chrome-devtools-mcp-bridge
+# chrome-mcp-router
 
-[chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) を橋渡しするブリッジツール。
+A proxy wrapper for [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) that adds automatic reconnection and project-based configuration.
 
-Chrome がクラッシュした際に自動的に子プロセスを再起動し、MCP 接続を復元します。
-また、プロジェクト名でポート番号を解決できるよう設定ファイルをサポートします。
+- **Auto-reconnect**: Detects Chrome crashes and automatically restarts the child process when Chrome comes back up
+- **Project routing**: Resolve the Chrome debugging URL by project name instead of specifying a port number directly
 
-## インストール
+## Installation
 
 ```bash
-# npx で実行（インストール不要）
-npx -y chrome-devtools-mcp-bridge@latest --project myproject
+# Run via npx (no install required)
+npx -y chrome-mcp-router@latest --project myproject
 ```
 
-## 使い方
+## Usage
 
-### .mcp.json の設定
+### .mcp.json
 
 ```json
 {
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp-bridge@latest", "--project", "myproject"]
+      "args": ["-y", "chrome-mcp-router@latest", "--project", "myproject"]
     }
   }
 }
 ```
 
-### CLI オプション
+### CLI options
 
 ```
-chrome-devtools-mcp-bridge --project <name>
-chrome-devtools-mcp-bridge --browserUrl <url>
+chrome-mcp-router --project <name>
+chrome-mcp-router --browserUrl <url>
 ```
 
-| オプション | 説明 |
+| Option | Description |
 | --- | --- |
-| `--project <name>` | 設定ファイルのプロジェクト名で `browserUrl` を解決する |
-| `--browserUrl <url>` | Chrome のデバッグ URL を直接指定する (例: `http://127.0.0.1:9222`) |
+| `--project <name>` | Resolve `browserUrl` from config file by project name |
+| `--browserUrl <url>` | Chrome remote debugging URL (e.g. `http://127.0.0.1:9222`) |
 
-その他のフラグ (`--slim`, `--no-usage-statistics` など) は `chrome-devtools-mcp` に pass-through されます。
+Any other flags (`--slim`, `--no-usage-statistics`, etc.) are passed through to `chrome-devtools-mcp`.
 
-### 設定ファイル
+### Config file
 
-`~/.config/chrome-devtools-mcp-bridge/config.json` にプロジェクト名と URL のマッピングを記述します。
+Create `~/.config/chrome-mcp-router/config.json` with a mapping of project names to URLs:
 
 ```json
 {
@@ -58,13 +58,13 @@ chrome-devtools-mcp-bridge --browserUrl <url>
 }
 ```
 
-## 動作
+## How it works
 
-1. `--project` が指定された場合、設定ファイルからプロジェクト名で `browserUrl` を解決する
-2. `chrome-devtools-mcp` を子プロセスとして起動し、stdio を双方向にプロキシする
-3. Chrome の `/json/version` エンドポイントを 3 秒ごとにポーリングして生存確認する
-4. Chrome がクラッシュ後に再起動したことを検知すると、子プロセスを再起動し MCP handshake を再送する
+1. If `--project` is given, resolves `browserUrl` from the config file
+2. Spawns `chrome-devtools-mcp` as a child process and proxies stdio bidirectionally
+3. Polls Chrome's `/json/version` endpoint every 3 seconds
+4. When Chrome restarts after a crash, kills the stale child process, spawns a fresh one, and replays the MCP handshake to restore the session transparently
 
-## ライセンス
+## License
 
 MIT

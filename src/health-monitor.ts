@@ -1,11 +1,10 @@
 import http from 'node:http'
 
 /**
- * Chrome の生存状態を定期的に HTTP ポーリングで監視するモニタ
+ * Health monitor that periodically polls Chrome via HTTP
  *
- * Chrome の `/json/version` エンドポイントを定期的に確認し、
- * 接続状態の変化に応じてイベントを発火する。
- * EventTarget を継承し、`connected` / `disconnected` / `reconnected` イベントを発火する。
+ * Checks the `/json/version` endpoint at a fixed interval and dispatches
+ * `connected`, `disconnected`, and `reconnected` events on state changes.
  */
 export class HealthMonitor extends EventTarget {
   private readonly browserUrl: string
@@ -15,8 +14,8 @@ export class HealthMonitor extends EventTarget {
   private hasEverConnected = false
 
   /**
-   * @param browserUrl Chrome のデバッグ URL (例: http://127.0.0.1:9222)
-   * @param pollIntervalMs ポーリング間隔（ミリ秒、デフォルト 3000）
+   * @param browserUrl Chrome remote debugging URL (e.g. http://127.0.0.1:9222)
+   * @param pollIntervalMs Polling interval in milliseconds (default: 3000)
    */
   constructor(browserUrl: string, pollIntervalMs = 3000) {
     super()
@@ -24,28 +23,28 @@ export class HealthMonitor extends EventTarget {
     this.pollIntervalMs = pollIntervalMs
   }
 
-  /** 現在 Chrome に接続できているかどうか */
+  /** Whether Chrome is currently reachable */
   get isConnected(): boolean {
     return this._isConnected
   }
 
-  /** ポーリングを開始する */
+  /** Start polling */
   start(): void {
     this.poll().catch((error: unknown) => {
       process.stderr.write(
-        `[health-monitor] 予期しないエラー: ${String(error)}\n`
+        `[health-monitor] Unexpected error: ${String(error)}\n`
       )
     })
     this.timer = setInterval(() => {
       this.poll().catch((error: unknown) => {
         process.stderr.write(
-          `[health-monitor] 予期しないエラー: ${String(error)}\n`
+          `[health-monitor] Unexpected error: ${String(error)}\n`
         )
       })
     }, this.pollIntervalMs)
   }
 
-  /** ポーリングを停止する */
+  /** Stop polling */
   stop(): void {
     if (this.timer) {
       clearInterval(this.timer)
@@ -54,8 +53,8 @@ export class HealthMonitor extends EventTarget {
   }
 
   /**
-   * Chrome の /json/version エンドポイントに HTTP リクエストを送り、
-   * 応答があれば true を返す
+   * Send an HTTP request to Chrome's /json/version endpoint
+   * @returns true if Chrome responded with HTTP 200
    */
   private async checkHealth(): Promise<boolean> {
     return new Promise((resolve) => {
@@ -82,7 +81,7 @@ export class HealthMonitor extends EventTarget {
     })
   }
 
-  /** ポーリング処理: 接続状態の変化を検知してイベントを発火する */
+  /** Poll Chrome and dispatch events on connectivity changes */
   private async poll(): Promise<void> {
     const healthy = await this.checkHealth()
     if (healthy && !this._isConnected) {

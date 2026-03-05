@@ -2,29 +2,29 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** プロジェクト設定 */
+/** Per-project configuration */
 export interface ProjectConfig {
-  /** Chrome のデバッグ URL (例: http://127.0.0.1:9222) */
+  /** Chrome remote debugging URL (e.g. http://127.0.0.1:9222) */
   browserUrl: string
 }
 
-/** ブリッジ設定ファイルのスキーマ */
+/** Schema for the router config file */
 export interface BridgeConfig {
-  /** プロジェクト名 → 設定のマッピング */
+  /** Mapping of project name to project configuration */
   projects: Record<string, ProjectConfig>
 }
 
 const DEFAULT_CONFIG_PATH = path.join(
   os.homedir(),
   '.config',
-  'chrome-devtools-mcp-bridge',
+  'chrome-mcp-router',
   'config.json'
 )
 
 /**
- * 設定ファイルを読み込む
- * @param configPath 設定ファイルのパス（省略時はデフォルトパス）
- * @returns ブリッジ設定
+ * Load the config file
+ * @param configPath Path to config file (defaults to ~/.config/chrome-mcp-router/config.json)
+ * @returns Parsed bridge config, or an empty config if the file does not exist
  */
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): BridgeConfig {
   if (!fs.existsSync(configPath)) {
@@ -35,7 +35,7 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): BridgeConfig {
     return JSON.parse(content) as BridgeConfig
   } catch (error) {
     process.stderr.write(
-      `[bridge] 設定ファイルの読み込みに失敗しました: ${configPath}\n`
+      `[bridge] Failed to load config file: ${configPath}\n`
     )
     process.stderr.write(`[bridge] ${String(error)}\n`)
     return { projects: {} }
@@ -43,10 +43,10 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): BridgeConfig {
 }
 
 /**
- * プロジェクト名から browserUrl を解決する
- * @param projectName プロジェクト名
- * @param configPath 設定ファイルのパス（省略時はデフォルトパス）
- * @returns 対応する browserUrl、見つからない場合は null
+ * Resolve a project name to its browserUrl
+ * @param projectName Project name to look up
+ * @param configPath Path to config file (optional)
+ * @returns The browserUrl for the project, or null if not found
  */
 export function resolveProject(
   projectName: string,

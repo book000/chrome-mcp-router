@@ -2,26 +2,26 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { HealthMonitor } from './health-monitor'
 
-/** JSON-RPC メッセージの基本型 */
+/** Base type for JSON-RPC messages */
 interface JsonRpcBase {
   jsonrpc: '2.0'
 }
 
-/** JSON-RPC リクエスト */
+/** JSON-RPC request */
 interface JsonRpcRequest extends JsonRpcBase {
   id: number | string
   method: string
   params?: unknown
 }
 
-/** JSON-RPC レスポンス */
+/** JSON-RPC response */
 interface JsonRpcResponse extends JsonRpcBase {
   id: number | string
   result?: unknown
   error?: unknown
 }
 
-/** JSON-RPC 通知（id なし） */
+/** JSON-RPC notification (no id) */
 interface JsonRpcNotification extends JsonRpcBase {
   method: string
   params?: unknown
@@ -29,21 +29,21 @@ interface JsonRpcNotification extends JsonRpcBase {
 
 type JsonRpcMessage = JsonRpcRequest | JsonRpcResponse | JsonRpcNotification
 
-/** Bridge の初期化オプション */
+/** Options for initializing Bridge */
 export interface BridgeOptions {
-  /** Chrome のデバッグ URL */
+  /** Chrome remote debugging URL */
   browserUrl: string
-  /** chrome-devtools-mcp に pass-through するフラグ */
+  /** Flags to pass through to chrome-devtools-mcp */
   passthroughArgs: string[]
-  /** stdin が閉じられた際に呼び出されるコールバック */
+  /** Callback invoked when stdin is closed */
   onExit?: () => void
 }
 
 /**
- * chrome-devtools-mcp の stdio プロキシとして動作するブリッジ
+ * stdio proxy bridge for chrome-devtools-mcp
  *
- * Claude Code ↔ Bridge ↔ chrome-devtools-mcp (子プロセス) という構成で動作し、
- * Chrome クラッシュ時に子プロセスを自動再起動し、MCP handshake を再送する。
+ * Operates as: Claude Code <-> Bridge <-> chrome-devtools-mcp (child process)
+ * Automatically restarts the child process on Chrome crash and replays the MCP handshake.
  */
 export class Bridge {
   private readonly browserUrl: string
@@ -54,26 +54,26 @@ export class Bridge {
   private child: ChildProcess | null = null
   private childAlive = false
 
-  /** 再接続処理中フラグ */
+  /** Whether a reconnection is currently in progress */
   private reconnecting = false
 
-  /** Claude から受信した initialize リクエスト（再送用にバッファ） */
+  /** Buffered initialize request received from Claude (for replay on reconnect) */
   private initRequest: string | null = null
-  /** initialize リクエストの id（レスポンス抑制に使用） */
+  /** id of the initialize request (used to suppress duplicate response to Claude) */
   private initRequestId: number | string | null = null
-  /** Claude から受信した notifications/initialized（再送用にバッファ） */
+  /** Buffered notifications/initialized message received from Claude (for replay on reconnect) */
   private initializedNotif: string | null = null
 
-  /** 再接続中に Claude から届いたメッセージを保持するキュー */
+  /** Queue of messages received from Claude while reconnecting */
   private pendingQueue: string[] = []
 
-  /** 子プロセスからの initialize レスポンスを待ち受けているかどうか */
+  /** Whether we are waiting for the initialize response from the child */
   private waitingForInitResponse = false
-  /** initialize レスポンスを受信した際に呼び出すコールバック */
+  /** Callback to invoke when the initialize response is received */
   private initResponseCallback: (() => void) | null = null
 
   /**
-   * @param options ブリッジの初期化オプション
+   * @param options Bridge initialization options
    */
   constructor(options: BridgeOptions) {
     this.browserUrl = options.browserUrl
@@ -83,18 +83,18 @@ export class Bridge {
   }
 
   /**
-   * ブリッジを開始する
+   * Start the bridge
    *
-   * Chrome ヘルスモニタを起動し、子プロセスを起動して stdin のプロキシを開始する。
+   * Starts the Chrome health monitor, spawns the child process, and begins proxying stdin.
    */
   start(): void {
     this.healthMonitor.addEventListener('reconnected', () => {
       process.stderr.write(
-        '[bridge] Chrome の再起動を検知しました。子プロセスを再起動します\n'
+        '[bridge] Chrome restart detected. Restarting child process\n'
       )
       this.handleChromeReconnected().catch((error: unknown) => {
         process.stderr.write(
-          `[bridge] 再接続中にエラーが発生しました: ${String(error)}\n`
+          `[bridge] Error during reconnection: ${String(error)}\n`
         )
       })
     })
@@ -105,9 +105,9 @@ export class Bridge {
   }
 
   /**
-   * ブリッジを停止する
+   * Stop the bridge
    *
-   * ヘルスモニタと子プロセスを停止する。
+   * Stops the health monitor and terminates the child process.
    */
   stop(): void {
     this.healthMonitor.stop()
@@ -118,7 +118,7 @@ export class Bridge {
   }
 
   /**
-   * chrome-devtools-mcp の子プロセスを起動する
+   * Spawn the chrome-devtools-mcp child process
    */
   private spawnChild(): void {
     const args = [
@@ -128,9 +128,7 @@ export class Bridge {
       ...this.passthroughArgs,
     ]
 
-    process.stderr.write(
-      `[bridge] 子プロセスを起動します: npx ${args.join(' ')}\n`
-    )
+    process.stderr.write(`[bridge] Spawning child: npx ${args.join(' ')}\n`)
 
     this.child = spawn('npx', args, {
       stdio: ['pipe', 'pipe', 'inherit'],
@@ -146,20 +144,18 @@ export class Bridge {
     }
 
     this.child.on('exit', (code) => {
-      process.stderr.write(
-        `[bridge] 子プロセスが終了しました (コード: ${code})\n`
-      )
+      process.stderr.write(`[bridge] Child process exited (code: ${code})\n`)
       this.childAlive = false
       this.child = null
 
-      // Chrome が接続状態の場合は即座に再起動する
+      // Restart immediately if Chrome is still reachable
       if (this.healthMonitor.isConnected && !this.reconnecting) {
         process.stderr.write(
-          '[bridge] Chrome は動作中のため、子プロセスを再起動します\n'
+          '[bridge] Chrome is still running. Restarting child process\n'
         )
         this.handleChromeReconnected().catch((error: unknown) => {
           process.stderr.write(
-            `[bridge] 再接続中にエラーが発生しました: ${String(error)}\n`
+            `[bridge] Error during reconnection: ${String(error)}\n`
           )
         })
       }
@@ -167,40 +163,40 @@ export class Bridge {
   }
 
   /**
-   * 子プロセスからの出力行を処理する
+   * Handle a line of output from the child process
    *
-   * 再接続中に initialize レスポンスを受信した場合は Claude に転送せず抑制する。
-   * それ以外のメッセージは Claude に転送する。
-   * @param line 子プロセスから受信した JSON-RPC メッセージ（1 行）
+   * Suppresses the initialize response during reconnection (Claude already received it).
+   * All other messages are forwarded to Claude.
+   * @param line JSON-RPC message line received from the child
    */
   private handleChildOutput(line: string): void {
-    // 再接続中に initialize レスポンスを待っている場合
+    // Intercept initialize response while waiting during reconnection
     if (this.waitingForInitResponse && this.initRequestId !== null) {
       try {
         const msg = JSON.parse(line) as JsonRpcMessage
         const isResponse =
           'id' in msg && msg.id === this.initRequestId && !('method' in msg)
         if (isResponse) {
-          // initialize レスポンスをキャッチ - Claude には転送しない
+          // Suppress initialize response - Claude already received one
           this.waitingForInitResponse = false
           process.stderr.write(
-            '[bridge] initialize レスポンスを受信しました（Claude には転送しません）\n'
+            '[bridge] Received initialize response (suppressed, not forwarded to Claude)\n'
           )
           this.initResponseCallback?.()
           this.initResponseCallback = null
           return
         }
       } catch {
-        // JSON パースエラーは無視
+        // Ignore JSON parse errors
       }
     }
 
-    // Claude に転送
+    // Forward to Claude
     process.stdout.write(line + '\n')
   }
 
   /**
-   * stdin から Claude のメッセージを受け取り子プロセスに転送するプロキシを設定する
+   * Set up the stdin proxy to forward Claude messages to the child process
    */
   private setupStdinProxy(): void {
     const rl = createInterface({ input: process.stdin })
@@ -208,82 +204,82 @@ export class Bridge {
       this.handleIncomingMessage(line)
     })
     process.stdin.on('end', () => {
-      process.stderr.write('[bridge] stdin が閉じられました。終了します\n')
+      process.stderr.write('[bridge] stdin closed. Exiting\n')
       this.stop()
       this.onExit?.()
     })
   }
 
   /**
-   * Claude から受信したメッセージを処理する
+   * Handle a message received from Claude
    *
-   * initialize / notifications/initialized をバッファし、
-   * 再接続中はキューに積み、それ以外は子プロセスに転送する。
-   * @param line Claude から受信した JSON-RPC メッセージ（1 行）
+   * Buffers initialize / notifications/initialized for replay on reconnect,
+   * queues messages while reconnecting, and forwards all others to the child.
+   * @param line JSON-RPC message line received from Claude
    */
   private handleIncomingMessage(line: string): void {
-    // MCP handshake メッセージをバッファ
+    // Buffer MCP handshake messages for reconnection replay
     try {
       const msg = JSON.parse(line) as JsonRpcMessage
       if ('method' in msg && msg.method === 'initialize') {
         this.initRequest = line
         this.initRequestId = 'id' in msg ? msg.id : null
-        process.stderr.write('[bridge] initialize リクエストをバッファしました\n')
+        process.stderr.write('[bridge] Buffered initialize request\n')
       }
       if ('method' in msg && msg.method === 'notifications/initialized') {
         this.initializedNotif = line
-        process.stderr.write('[bridge] MCP handshake が完了しました\n')
+        process.stderr.write('[bridge] MCP handshake complete\n')
       }
     } catch {
-      // JSON パースエラーは無視
+      // Ignore JSON parse errors
     }
 
-    // 再接続中はキューに積む
+    // Queue messages while reconnecting
     if (this.reconnecting) {
       this.pendingQueue.push(line)
       return
     }
 
-    // 子プロセスに転送
+    // Forward to child process
     this.child?.stdin?.write(line + '\n')
   }
 
   /**
-   * Chrome 再接続時の処理
+   * Handle Chrome reconnection
    *
-   * 既存の子プロセスを停止し、新しい子プロセスを起動した後、
-   * バッファした MCP handshake メッセージを再送してセッションを復元する。
+   * Stops the existing child process, spawns a new one, replays the buffered
+   * MCP handshake messages to restore the session.
    */
   private async handleChromeReconnected(): Promise<void> {
     if (this.reconnecting) return
     this.reconnecting = true
 
     try {
-      // 既存の子プロセスを停止
+      // Stop the existing child process
       if (this.child && this.childAlive) {
-        process.stderr.write('[bridge] 既存の子プロセスを停止します\n')
+        process.stderr.write('[bridge] Stopping existing child process\n')
         this.child.kill('SIGTERM')
         await new Promise<void>((resolve) => {
           setTimeout(resolve, 500)
         })
       }
 
-      // 新しい子プロセスを起動
+      // Spawn a new child process
       this.spawnChild()
       const child = this.child
 
-      // MCP handshake を再送して新しい子プロセスを初期化する
+      // Replay the MCP handshake to initialize the new child
       if (this.initRequest && child?.stdin) {
-        process.stderr.write('[bridge] initialize を子プロセスに再送します\n')
+        process.stderr.write('[bridge] Replaying initialize to child\n')
         child.stdin.write(this.initRequest + '\n')
 
-        // initialize レスポンスを待つ（最大 10 秒）
+        // Wait for initialize response (up to 10 seconds)
         await new Promise<void>((resolve) => {
           const timeout = setTimeout(() => {
             this.waitingForInitResponse = false
             this.initResponseCallback = null
             process.stderr.write(
-              '[bridge] initialize レスポンスがタイムアウトしました\n'
+              '[bridge] Timed out waiting for initialize response\n'
             )
             resolve()
           }, 10_000)
@@ -295,23 +291,23 @@ export class Bridge {
           }
         })
 
-        // notifications/initialized を再送（child.stdin は外側の条件で確認済み）
+        // Replay notifications/initialized (child.stdin verified by outer condition)
         if (this.initializedNotif) {
           process.stderr.write(
-            '[bridge] notifications/initialized を子プロセスに再送します\n'
+            '[bridge] Replaying notifications/initialized to child\n'
           )
           child.stdin.write(this.initializedNotif + '\n')
         }
       }
 
-      // ペンディングキューのメッセージを子プロセスに転送
+      // Flush pending queue to child
       const pending = [...this.pendingQueue]
       this.pendingQueue = []
       for (const msg of pending) {
         this.child?.stdin?.write(msg + '\n')
       }
 
-      process.stderr.write('[bridge] 再接続が完了しました\n')
+      process.stderr.write('[bridge] Reconnection complete\n')
     } finally {
       this.reconnecting = false
     }

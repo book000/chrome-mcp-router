@@ -2,19 +2,19 @@
 import { Bridge } from './bridge'
 import { resolveProject } from './config'
 
-/** CLI 引数の解析結果 */
+/** Parsed CLI arguments */
 interface ParsedArgs {
   browserUrl: string
   passthroughArgs: string[]
 }
 
 /**
- * CLI 引数を解析して browserUrl と pass-through フラグを取得する
+ * Parse CLI arguments and return browserUrl and pass-through flags
  *
- * --project <name>: 設定ファイルからプロジェクト名で browserUrl を解決する
- * --browserUrl <url>: Chrome のデバッグ URL を直接指定する
- * その他のフラグ: chrome-devtools-mcp に pass-through する
- * @returns 解析結果
+ * --project <name>: Resolve browserUrl from config file by project name
+ * --browserUrl <url>: Use Chrome remote debugging URL directly
+ * All other flags are passed through to chrome-devtools-mcp
+ * @returns Parsed arguments
  */
 function parseArgs(): ParsedArgs {
   const rawArgs = process.argv.slice(2)
@@ -30,10 +30,10 @@ function parseArgs(): ParsedArgs {
       browserUrl = resolveProject(projectName)
       if (!browserUrl) {
         process.stderr.write(
-          `Error: プロジェクト "${projectName}" が設定ファイルに見つかりません\n`
+          `Error: Project "${projectName}" not found in config\n`
         )
         process.stderr.write(
-          '設定ファイル: ~/.config/chrome-devtools-mcp-bridge/config.json\n'
+          'Config file: ~/.config/chrome-mcp-router/config.json\n'
         )
         process.exit(1)
       }
@@ -42,7 +42,7 @@ function parseArgs(): ParsedArgs {
       browserUrl = resolveProject(projectName)
       if (!browserUrl) {
         process.stderr.write(
-          `Error: プロジェクト "${projectName}" が設定ファイルに見つかりません\n`
+          `Error: Project "${projectName}" not found in config\n`
         )
         process.exit(1)
       }
@@ -51,7 +51,7 @@ function parseArgs(): ParsedArgs {
     } else if (arg.startsWith('--browserUrl=')) {
       browserUrl = arg.slice('--browserUrl='.length)
     } else {
-      // bridge が知らないフラグは chrome-devtools-mcp に pass-through する
+      // Unknown flags are passed through to chrome-devtools-mcp
       passthroughArgs.push(arg)
     }
 
@@ -59,22 +59,20 @@ function parseArgs(): ParsedArgs {
   }
 
   if (!browserUrl) {
-    process.stderr.write('Usage: chrome-devtools-mcp-bridge --project <name>\n')
-    process.stderr.write(
-      '   or: chrome-devtools-mcp-bridge --browserUrl <url>\n'
-    )
+    process.stderr.write('Usage: chrome-mcp-router --project <name>\n')
+    process.stderr.write('   or: chrome-mcp-router --browserUrl <url>\n')
     process.stderr.write('\nOptions:\n')
     process.stderr.write(
-      '  --project <name>     設定ファイルのプロジェクト名で browserUrl を解決する\n'
+      '  --project <name>     Resolve browserUrl from config file by project name\n'
     )
     process.stderr.write(
-      '  --browserUrl <url>   Chrome のデバッグ URL (例: http://127.0.0.1:9222)\n'
+      '  --browserUrl <url>   Chrome remote debugging URL (e.g. http://127.0.0.1:9222)\n'
     )
     process.stderr.write(
-      '  その他のフラグは chrome-devtools-mcp に pass-through される\n'
+      '  Other flags are passed through to chrome-devtools-mcp\n'
     )
     process.stderr.write(
-      '\n設定ファイル: ~/.config/chrome-devtools-mcp-bridge/config.json\n'
+      '\nConfig file: ~/.config/chrome-mcp-router/config.json\n'
     )
     process.exit(1)
   }
