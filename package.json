@@ -1,0 +1,39 @@
+{
+  "name": "chrome-mcp-router",
+  "version": "0.1.0",
+  "description": "A resilient MCP proxy for Chrome DevTools that provides automatic reconnection on crash and project-based port resolution",
+  "license": "MIT",
+  "author": "book000",
+  "packageManager": "pnpm@10.30.2",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/book000/chrome-mcp-router.git"
+  },
+  "main": "build/index.js",
+  "bin": {
+    "chrome-mcp-router": "build/index.js"
+  },
+  "files": [
+    "build/"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf build *.tsbuildinfo",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write src",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@book000/eslint-config": "1.13.12",
+    "@types/node": "22.13.14",
+    "eslint": "10.0.2",
+    "prettier": "3.5.3",
+    "typescript": "5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
