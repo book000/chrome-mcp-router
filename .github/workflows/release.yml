@@ -72,7 +72,7 @@ jobs:
           pnpm version --no-git-tag-version ${{ steps.tag-version.outputs.new_version }}
 
       - name: ⬆️ Upgrade npm for OIDC Trusted Publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@^11.5.1
 
       - name: 📦 Publish
         run: |
