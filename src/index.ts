@@ -6,6 +6,8 @@ import { isValidBrowserUrl, resolveProject } from './config'
 interface ParsedArgs {
   /** Chrome リモートデバッグ URL */
   browserUrl: string
+  /** `--project` で指定されたプロジェクト名(`--browserUrl` 直接指定時は undefined) */
+  projectName?: string
   /** chrome-devtools-mcp にそのまま渡すフラグ */
   passthroughArgs: string[]
 }
@@ -61,24 +63,26 @@ function validateUrlOrExit(url: string, label: string): void {
 function parseArgs(): ParsedArgs {
   const rawArgs = process.argv.slice(2)
   let browserUrl: string | null = null
+  let projectName: string | undefined
   const passthroughArgs: string[] = []
 
   const index = { value: 0 }
   while (index.value < rawArgs.length) {
     // --project の処理
-    const projectName = extractArgValue(rawArgs, index, '--project')
-    if (projectName !== null) {
-      browserUrl = resolveProject(projectName)
+    const parsedProjectName = extractArgValue(rawArgs, index, '--project')
+    if (parsedProjectName !== null) {
+      browserUrl = resolveProject(parsedProjectName)
       if (!browserUrl) {
         process.stderr.write(
-          `Error: Project "${projectName}" not found in config\n`
+          `Error: Project "${parsedProjectName}" not found in config\n`
         )
         process.stderr.write(
           'Config file: ~/.config/chrome-mcp-router/config.json\n'
         )
         process.exit(1)
       }
-      validateUrlOrExit(browserUrl, `project "${projectName}"`)
+      validateUrlOrExit(browserUrl, `project "${parsedProjectName}"`)
+      projectName = parsedProjectName
       index.value++
       continue
     }
@@ -116,12 +120,13 @@ function parseArgs(): ParsedArgs {
     process.exit(1)
   }
 
-  return { browserUrl, passthroughArgs }
+  return { browserUrl, projectName, passthroughArgs }
 }
 
-const { browserUrl, passthroughArgs } = parseArgs()
+const { browserUrl, projectName, passthroughArgs } = parseArgs()
 const bridge = new Bridge({
   browserUrl,
+  projectName,
   passthroughArgs,
   onExit: () => process.exit(0),
 })
