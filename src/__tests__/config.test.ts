@@ -158,4 +158,29 @@ describe('resolveProject', () => {
 
     expect(result).toBeNull()
   })
+
+  it('2 回目の呼び出しでは config ファイルを再読み込みし、更新後の browserUrl を返す', () => {
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        projects: {
+          myApp: { browserUrl: 'http://127.0.0.1:9222' },
+        },
+      })
+    )
+
+    const first = resolveProject('myApp', '/tmp/config.json')
+    expect(first).toBe('http://127.0.0.1:9222')
+
+    mockReadFileSync.mockReturnValueOnce(
+      JSON.stringify({
+        projects: {
+          myApp: { browserUrl: 'http://127.0.0.1:9333' },
+        },
+      })
+    )
+
+    const second = resolveProject('myApp', '/tmp/config.json')
+    expect(second).toBe('http://127.0.0.1:9333')
+  })
 })
