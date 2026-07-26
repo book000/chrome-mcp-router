@@ -37,7 +37,9 @@ Data flow: `MCP client (stdin/stdout) <-> Bridge <-> chrome-devtools-mcp (child)
 - `src/bridge.ts`: the core `Bridge` class. Spawns and supervises the child,
   proxies JSON-RPC line by line, buffers the `initialize` request and
   `notifications/initialized` for replay, and queues client messages during a
-  reconnect (bounded by `MAX_PENDING_QUEUE_SIZE`).
+  reconnect (bounded by `MAX_PENDING_QUEUE_SIZE`). When started with a project
+  name, it also re-resolves `browserUrl` from the config file every 5 seconds
+  and restarts the child process if it changed.
 - `src/health-monitor.ts`: `HealthMonitor extends EventTarget`. Polls Chrome
   and dispatches `connected` / `disconnected` / `reconnected` events.
 - `src/config.ts`: loads and validates the config file, resolves a project name

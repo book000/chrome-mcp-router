@@ -64,6 +64,7 @@ Specify project name to URL mappings in `~/.config/chrome-mcp-router/config.json
 2. Starts `chrome-devtools-mcp` as a child process and bidirectionally proxies stdio
 3. Polls Chrome's `/json/version` endpoint every 3 seconds to check liveness
 4. When it detects that Chrome has restarted after a crash, stops the old child process, starts a new one, and transparently restores the session by replaying the MCP handshake
+5. If `--project` is specified, re-resolves `browserUrl` from the config file every 5 seconds; if it has changed, restarts the child process with the new URL
 
 ## License
 
