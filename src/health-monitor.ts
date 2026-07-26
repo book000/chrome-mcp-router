@@ -9,7 +9,7 @@ import https from 'node:https'
  * HTTP / HTTPS の両方に対応する。
  */
 export class HealthMonitor extends EventTarget {
-  private readonly browserUrl: string
+  private browserUrl: string
   private readonly pollIntervalMs: number
   private timer: ReturnType<typeof setInterval> | null = null
   private _isConnected = false
@@ -52,6 +52,18 @@ export class HealthMonitor extends EventTarget {
       clearInterval(this.timer)
       this.timer = null
     }
+  }
+
+  /**
+   * ポーリング対象の browserUrl を切り替える
+   *
+   * config.json の再解決で browserUrl が変わった場合に呼び出す。
+   * ポーリング間隔・接続状態はリセットせず、次回以降の poll() が
+   * 新しい URL に対して checkHealth() を実行するようになるだけである。
+   * @param newUrl 新しいポーリング対象の URL
+   */
+  updateBrowserUrl(newUrl: string): void {
+    this.browserUrl = newUrl
   }
 
   /**

@@ -64,6 +64,7 @@ chrome-mcp-router --browserUrl <url>
 2. `chrome-devtools-mcp` を子プロセスとして起動し、stdio を双方向にプロキシする
 3. Chrome の `/json/version` エンドポイントを 3 秒ごとにポーリングして生存確認する
 4. Chrome がクラッシュ後に再起動したことを検知すると、古い子プロセスを停止して新しく起動し、MCP handshake を再送してセッションを透過的に復元する
+5. `--project` が指定されている場合、5 秒ごとに設定ファイルから `browserUrl` を再解決し、変更されていれば新しい URL で子プロセスを再起動する
 
 ## ライセンス
 

@@ -1,5 +1,6 @@
 import { execSync, type ChildProcess, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
+import { isValidBrowserUrl, resolveProject } from './config'
 import { HealthMonitor } from './health-monitor'
 
 /** JSON-RPC メッセージの基底型 */
@@ -99,6 +100,14 @@ function tryParseJsonRpcLine(line: string): JsonRpcMessage | null {
 export interface BridgeOptions {
   /** Chrome リモートデバッグ URL */
   browserUrl: string
+  /**
+   * `--project` で指定されたプロジェクト名
+   *
+   * 指定されている場合、定期的に config.json を再読み込みして
+   * browserUrl を再解決する。`--browserUrl` 直接指定の場合は
+   * undefined のままとし、再解決を行わない。
+   */
+  projectName?: string
   /** chrome-devtools-mcp にそのまま渡すフラグ */
   passthroughArgs: string[]
   /** stdin が閉じられたときに呼び出されるコールバック */
@@ -115,7 +124,8 @@ const MAX_PENDING_QUEUE_SIZE = 500
  * Chrome クラッシュ時に子プロセスを自動再起動し、MCP ハンドシェイクを再生する。
  */
 export class Bridge {
-  private readonly browserUrl: string
+  private browserUrl: string
+  private readonly projectName?: string
   private readonly passthroughArgs: string[]
   private readonly healthMonitor: HealthMonitor
   private readonly onExit?: () => void
@@ -157,6 +167,7 @@ export class Bridge {
    */
   constructor(options: BridgeOptions) {
     this.browserUrl = options.browserUrl
+    this.projectName = options.projectName
     this.passthroughArgs = options.passthroughArgs
     this.onExit = options.onExit
     this.healthMonitor = new HealthMonitor(this.browserUrl)
@@ -203,6 +214,10 @@ export class Bridge {
     // Chrome は生きているが子プロセスが死んでいる状態（premature reconnect 後のスタックなど）を
     // 定期的に検出してリカバリする
     this.recoveryTimer = setInterval(() => {
+      if (this.projectName) {
+        this.checkForBrowserUrlChange(this.projectName)
+      }
+
       if (
         this.healthMonitor.isConnected &&
         !this.childAlive &&
@@ -239,6 +254,49 @@ export class Bridge {
       this.child = null
       this.childAlive = false
     }
+  }
+
+  /**
+   * config.json を再読み込みし、プロジェクトの browserUrl が変わっていないか確認する
+   *
+   * HealthMonitor は起動時に固定した browserUrl のみを監視し続けるため、
+   * config.json 側で browserUrl が変わっても Chrome の接続状態からは
+   * 変更を検知できない(Issue #28)。そのため接続状態とは独立に、
+   * このメソッドを定期的(recoveryTimer 経由)に呼び出して config.json を
+   * 直接再解決する。
+   * @param projectName `--project` で指定されたプロジェクト名
+   */
+  private checkForBrowserUrlChange(projectName: string): void {
+    const resolved = resolveProject(projectName)
+
+    if (!resolved) {
+      process.stderr.write(
+        `[bridge] Project "${projectName}" no longer found in config. Keeping current browserUrl: ${this.browserUrl}\n`
+      )
+      return
+    }
+
+    if (resolved === this.browserUrl) {
+      return
+    }
+
+    if (!isValidBrowserUrl(resolved)) {
+      process.stderr.write(
+        `[bridge] Resolved browserUrl for project "${projectName}" is invalid: ${resolved}. Keeping current browserUrl: ${this.browserUrl}\n`
+      )
+      return
+    }
+
+    process.stderr.write(
+      `[bridge] browserUrl changed for project "${projectName}": ${this.browserUrl} -> ${resolved}. Restarting child process\n`
+    )
+    this.browserUrl = resolved
+    this.healthMonitor.updateBrowserUrl(this.browserUrl)
+    this.handleChromeReconnected().catch((error: unknown) => {
+      process.stderr.write(
+        `[bridge] Error during browserUrl change reconnection: ${String(error)}\n`
+      )
+    })
   }
 
   /**
