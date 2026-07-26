@@ -143,6 +143,33 @@ describe('HealthMonitor', () => {
     monitor.stop()
   })
 
+  it('updateBrowserUrl() で新しい URL に対してポーリングするようになる', async () => {
+    mockHttpResponse(200)
+
+    const monitor = new HealthMonitor('http://127.0.0.1:9222', 1000)
+    monitor.start()
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:9222/json/version',
+      expect.anything(),
+      expect.any(Function)
+    )
+
+    monitor.updateBrowserUrl('http://127.0.0.1:9333')
+    mockHttpGet.mockClear()
+    mockHttpResponse(200)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(mockHttpGet).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:9333/json/version',
+      expect.anything(),
+      expect.any(Function)
+    )
+
+    monitor.stop()
+  })
+
   it('stop() でポーリングが停止する', async () => {
     mockHttpResponse(200)
 
