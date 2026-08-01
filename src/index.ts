@@ -28,11 +28,11 @@ function extractArgValue(
   prefix: string
 ): string | null {
   const arg = args[index.value]
-  const eqPrefix = `${prefix}=`
   if (arg === prefix && index.value + 1 < args.length) {
     index.value++
     return args[index.value]
   }
+  const eqPrefix = `${prefix}=`
   if (arg.startsWith(eqPrefix)) {
     return arg.slice(eqPrefix.length)
   }
@@ -45,11 +45,12 @@ function extractArgValue(
  * @param label エラーメッセージに含めるラベル（例: `'project "foo"'`）
  */
 function validateUrlOrExit(url: string, label: string): void {
-  if (!isValidBrowserUrl(url)) {
-    process.stderr.write(`Error: Invalid URL for ${label}: ${url}\n`)
-    process.stderr.write('URL must start with http:// or https://\n')
-    process.exit(1)
+  if (isValidBrowserUrl(url)) {
+    return
   }
+  process.stderr.write(`Error: Invalid URL for ${label}: ${url}\n`)
+  process.stderr.write('URL must start with http:// or https://\n')
+  process.exit(1)
 }
 
 /**

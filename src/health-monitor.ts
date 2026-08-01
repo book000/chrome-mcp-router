@@ -48,10 +48,11 @@ export class HealthMonitor extends EventTarget {
 
   /** ポーリングを停止する */
   stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer)
-      this.timer = null
+    if (!this.timer) {
+      return
     }
+    clearInterval(this.timer)
+    this.timer = null
   }
 
   /**
@@ -85,7 +86,7 @@ export class HealthMonitor extends EventTarget {
       // URL スキームに応じて http / https を切り替える
       const transport = urlObj.protocol === 'https:' ? https : http
 
-      const req = transport.get(urlObj.toString(), { timeout: 2000 }, (res) => {
+      const req = transport.get(urlObj.href, { timeout: 2000 }, (res) => {
         res.resume()
         resolve(res.statusCode === 200)
       })

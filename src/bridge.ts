@@ -193,16 +193,17 @@ export class Bridge {
     // Chrome が初めて到達可能になったとき、子プロセスが死んでいれば起動する
     // （起動時に Chrome がダウンしていて後から復帰したケースのカバー）
     this.healthMonitor.addEventListener('connected', () => {
-      if (!this.childAlive && !this.reconnecting) {
-        process.stderr.write(
-          '[bridge] Chrome became available. Starting child process\n'
-        )
-        this.handleChromeReconnected().catch((error: unknown) => {
-          process.stderr.write(
-            `[bridge] Error during initial connection: ${String(error)}\n`
-          )
-        })
+      if (this.childAlive || this.reconnecting) {
+        return
       }
+      process.stderr.write(
+        '[bridge] Chrome became available. Starting child process\n'
+      )
+      this.handleChromeReconnected().catch((error: unknown) => {
+        process.stderr.write(
+          `[bridge] Error during initial connection: ${String(error)}\n`
+        )
+      })
     })
 
     this.healthMonitor.addEventListener('disconnected', () => {
@@ -441,17 +442,18 @@ export class Bridge {
    * @param msg パース済みの JSON-RPC メッセージ
    */
   private sendDisconnectedError(msg: JsonRpcMessage): void {
-    if (isJsonRpcRequest(msg) && msg.method !== 'initialize') {
-      const response: JsonRpcResponse = {
-        jsonrpc: '2.0',
-        id: msg.id,
-        error: {
-          code: -32_000,
-          message: 'Chrome is not connected. Waiting for Chrome to restart.',
-        },
-      }
-      process.stdout.write(JSON.stringify(response) + '\n')
+    if (!isJsonRpcRequest(msg) || msg.method === 'initialize') {
+      return
     }
+    const response: JsonRpcResponse = {
+      jsonrpc: '2.0',
+      id: msg.id,
+      error: {
+        code: -32_000,
+        message: 'Chrome is not connected. Waiting for Chrome to restart.',
+      },
+    }
+    process.stdout.write(JSON.stringify(response) + '\n')
   }
 
   /**
