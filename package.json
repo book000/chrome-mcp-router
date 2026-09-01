@@ -4,7 +4,7 @@
   "description": "A resilient MCP proxy for Chrome DevTools that provides automatic reconnection on crash and project-based port resolution",
   "license": "MIT",
   "author": "book000",
-  "packageManager": "pnpm@11.24.0",
+  "packageManager": "pnpm@11.25.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/book000/chrome-mcp-router.git"
