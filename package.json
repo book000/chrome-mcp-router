@@ -31,7 +31,7 @@
   "devDependencies": {
     "@book000/eslint-config": "1.16.59",
     "@types/node": "24.13.3",
-    "eslint": "10.9.1",
+    "eslint": "10.10.0",
     "prettier": "3.9.6",
     "typescript": "5.9.3",
     "vitest": "5.0.0"
