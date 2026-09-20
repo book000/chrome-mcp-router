@@ -53,10 +53,7 @@ function parseJsonRpcMessage(data: unknown): JsonRpcMessage | null {
     'id' in obj &&
     (typeof obj.id === 'number' || typeof obj.id === 'string')
   const hasMethod = 'method' in obj && typeof obj.method === 'string'
-  if (!hasId && !hasMethod) {
-    return null
-  }
-  return data as JsonRpcMessage
+  return !hasId && !hasMethod ? null : (data as JsonRpcMessage)
 }
 
 /**
@@ -220,19 +217,21 @@ export class Bridge {
       }
 
       if (
-        this.healthMonitor.isConnected &&
-        !this.childAlive &&
-        !this.reconnecting
+        !this.healthMonitor.isConnected ||
+        this.childAlive ||
+        this.reconnecting
       ) {
-        process.stderr.write(
-          '[bridge] Recovery: Chrome is up but child is dead. Reconnecting.\n'
-        )
-        this.handleChromeReconnected().catch((error: unknown) => {
-          process.stderr.write(
-            `[bridge] Error during recovery reconnection: ${String(error)}\n`
-          )
-        })
+        return
       }
+
+      process.stderr.write(
+        '[bridge] Recovery: Chrome is up but child is dead. Reconnecting.\n'
+      )
+      this.handleChromeReconnected().catch((error: unknown) => {
+        process.stderr.write(
+          `[bridge] Error during recovery reconnection: ${String(error)}\n`
+        )
+      })
     }, 5000)
 
     this.spawnChild()
@@ -250,11 +249,13 @@ export class Bridge {
       clearInterval(this.recoveryTimer)
       this.recoveryTimer = null
     }
-    if (this.child) {
-      this.child.kill('SIGTERM')
-      this.child = null
-      this.childAlive = false
+    if (!this.child) {
+      return
     }
+
+    this.child.kill('SIGTERM')
+    this.child = null
+    this.childAlive = false
   }
 
   /**
@@ -379,16 +380,18 @@ export class Bridge {
       }
 
       // Chrome がまだ到達可能であれば即座に再起動する
-      if (this.healthMonitor.isConnected && !this.reconnecting) {
-        process.stderr.write(
-          '[bridge] Chrome is still running. Restarting child process\n'
-        )
-        this.handleChromeReconnected().catch((error: unknown) => {
-          process.stderr.write(
-            `[bridge] Error during reconnection: ${String(error)}\n`
-          )
-        })
+      if (!this.healthMonitor.isConnected || this.reconnecting) {
+        return
       }
+
+      process.stderr.write(
+        '[bridge] Chrome is still running. Restarting child process\n'
+      )
+      this.handleChromeReconnected().catch((error: unknown) => {
+        process.stderr.write(
+          `[bridge] Error during reconnection: ${String(error)}\n`
+        )
+      })
     })
   }
 

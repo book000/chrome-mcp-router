@@ -33,10 +33,7 @@ function extractArgValue(
     return args[index.value]
   }
   const eqPrefix = `${prefix}=`
-  if (arg.startsWith(eqPrefix)) {
-    return arg.slice(eqPrefix.length)
-  }
-  return null
+  return arg.startsWith(eqPrefix) ? arg.slice(eqPrefix.length) : null
 }
 
 /**
