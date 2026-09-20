@@ -104,8 +104,7 @@ export function resolveProject(
   configPath?: string
 ): string | null {
   const config = loadConfig(configPath)
-  if (!Object.hasOwn(config.projects, projectName)) {
-    return null
-  }
-  return config.projects[projectName].browserUrl
+  return Object.hasOwn(config.projects, projectName)
+    ? config.projects[projectName].browserUrl
+    : null
 }
