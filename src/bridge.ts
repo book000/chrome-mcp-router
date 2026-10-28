@@ -53,7 +53,7 @@ function parseJsonRpcMessage(data: unknown): JsonRpcMessage | null {
     'id' in obj &&
     (typeof obj.id === 'number' || typeof obj.id === 'string')
   const hasMethod = 'method' in obj && typeof obj.method === 'string'
-  return !hasId && !hasMethod ? null : (data as JsonRpcMessage)
+  return hasId || hasMethod ? (data as JsonRpcMessage) : null
 }
 
 /**
