@@ -29,7 +29,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@book000/eslint-config": "1.16.111",
+    "@book000/eslint-config": "1.16.112",
     "@types/node": "26.6.6",
     "eslint": "10.13.0",
     "prettier": "3.9.10",
