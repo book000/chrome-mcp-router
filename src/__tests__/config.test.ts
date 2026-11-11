@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { isValidBrowserUrl, loadConfig, resolveProject } from '../config'
 
-// node:fs をモックする
 vi.mock('node:fs', () => ({
   default: {
     existsSync: vi.fn(),
@@ -9,7 +8,6 @@ vi.mock('node:fs', () => ({
   },
 }))
 
-// モックした fs を取得
 import fs from 'node:fs'
 
 const mockExistsSync = vi.mocked(fs.existsSync)
@@ -20,29 +18,29 @@ beforeEach(() => {
 })
 
 describe('isValidBrowserUrl', () => {
-  it('http:// で始まる URL を有効と判定する', () => {
+  it('accepts a URL starting with http://', () => {
     expect(isValidBrowserUrl('http://127.0.0.1:9222')).toBe(true)
   })
 
-  it('https:// で始まる URL を有効と判定する', () => {
+  it('accepts a URL starting with https://', () => {
     expect(isValidBrowserUrl('https://localhost:9222')).toBe(true)
   })
 
-  it('無効な URL を false と判定する', () => {
+  it('rejects an invalid URL', () => {
     expect(isValidBrowserUrl('ftp://example.com')).toBe(false)
   })
 
-  it('空文字列を false と判定する', () => {
+  it('rejects an empty string', () => {
     expect(isValidBrowserUrl('')).toBe(false)
   })
 
-  it('プロトコルのない文字列を false と判定する', () => {
+  it('rejects a string without a protocol', () => {
     expect(isValidBrowserUrl('not-a-url')).toBe(false)
   })
 })
 
 describe('loadConfig', () => {
-  it('ファイルが存在しない場合は空の設定を返す', () => {
+  it('returns an empty config when the file does not exist', () => {
     mockExistsSync.mockReturnValue(false)
 
     const config = loadConfig('/tmp/nonexistent.json')
@@ -51,7 +49,7 @@ describe('loadConfig', () => {
     expect(mockExistsSync).toHaveBeenCalledWith('/tmp/nonexistent.json')
   })
 
-  it('正常な設定ファイルを読み込む', () => {
+  it('loads a valid config file', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
@@ -70,11 +68,11 @@ describe('loadConfig', () => {
     })
   })
 
-  it('不正な JSON の場合は空の設定を返す', () => {
+  it('returns an empty config for invalid JSON', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue('invalid json{{{')
 
-    // stderr への出力を抑制
+    // Suppress stderr output
     const stderrSpy = vi
       .spyOn(process.stderr, 'write')
       .mockReturnValue(true)
@@ -85,7 +83,7 @@ describe('loadConfig', () => {
     stderrSpy.mockRestore()
   })
 
-  it('projects がないオブジェクトの場合は空の設定を返す', () => {
+  it('returns an empty config when the object has no projects', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue(JSON.stringify({ notProjects: {} }))
 
@@ -99,7 +97,7 @@ describe('loadConfig', () => {
     stderrSpy.mockRestore()
   })
 
-  it('browserUrl が空文字の場合は空の設定を返す', () => {
+  it('returns an empty config when browserUrl is an empty string', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
@@ -121,7 +119,7 @@ describe('loadConfig', () => {
 })
 
 describe('resolveProject', () => {
-  it('存在するプロジェクトの browserUrl を返す', () => {
+  it('returns the browserUrl of an existing project', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
@@ -136,7 +134,7 @@ describe('resolveProject', () => {
     expect(result).toBe('http://127.0.0.1:9222')
   })
 
-  it('存在しないプロジェクトの場合は null を返す', () => {
+  it('returns null for a project that does not exist', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
@@ -151,7 +149,7 @@ describe('resolveProject', () => {
     expect(result).toBeNull()
   })
 
-  it('設定ファイルが存在しない場合は null を返す', () => {
+  it('returns null when the config file does not exist', () => {
     mockExistsSync.mockReturnValue(false)
 
     const result = resolveProject('anyProject', '/tmp/missing.json')
@@ -159,7 +157,7 @@ describe('resolveProject', () => {
     expect(result).toBeNull()
   })
 
-  it('2 回目の呼び出しでは config ファイルを再読み込みし、更新後の browserUrl を返す', () => {
+  it('re-reads the config file on each call and returns the updated browserUrl', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValueOnce(
       JSON.stringify({

@@ -2,15 +2,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-/** プロジェクトごとの設定 */
 export interface ProjectConfig {
-  /** Chrome リモートデバッグ URL（例: http://127.0.0.1:9222） */
+  /** Chrome remote debugging URL (e.g. http://127.0.0.1:9222) */
   browserUrl: string
 }
 
-/** ルーター設定ファイルのスキーマ */
+/** Schema of the router config file */
 export interface BridgeConfig {
-  /** プロジェクト名からプロジェクト設定へのマッピング */
+  /** Mapping from project name to project settings */
   projects: Record<string, ProjectConfig>
 }
 
@@ -22,10 +21,10 @@ const DEFAULT_CONFIG_PATH = path.join(
 )
 
 /**
- * 設定ファイルの内容を BridgeConfig として検証する
- * @param data JSON.parse した生データ
- * @returns 検証済みの BridgeConfig
- * @throws 構造が不正な場合にエラーをスローする
+ * Validates the config file contents as a BridgeConfig
+ * @param data Raw data from JSON.parse
+ * @returns The validated BridgeConfig
+ * @throws {Error} If the structure is invalid
  */
 function validateConfig(data: unknown): BridgeConfig {
   if (typeof data !== 'object' || data === null || Array.isArray(data)) {
@@ -58,9 +57,9 @@ function validateConfig(data: unknown): BridgeConfig {
 }
 
 /**
- * browserUrl が有効な HTTP(S) URL かどうかを検証する
- * @param url 検証する URL 文字列
- * @returns http:// または https:// で始まる有効な URL の場合は true
+ * Checks whether a browserUrl is a valid HTTP(S) URL
+ * @param url The URL string to check
+ * @returns true if the URL is valid and uses the http: or https: scheme
  */
 export function isValidBrowserUrl(url: string): boolean {
   try {
@@ -72,9 +71,12 @@ export function isValidBrowserUrl(url: string): boolean {
 }
 
 /**
- * 設定ファイルを読み込む
- * @param configPath 設定ファイルのパス（デフォルト: ~/.config/chrome-mcp-router/config.json）
- * @returns パース済みのブリッジ設定。ファイルが存在しない場合は空の設定を返す
+ * Loads the config file
+ *
+ * A missing, unreadable, or invalid file is not an error: it is logged to stderr (except when missing)
+ * and an empty config is returned, so callers only see "project not found".
+ * @param configPath Path to the config file (default: ~/.config/chrome-mcp-router/config.json)
+ * @returns The parsed config, or an empty config if the file is missing or invalid
  */
 export function loadConfig(configPath = DEFAULT_CONFIG_PATH): BridgeConfig {
   if (!fs.existsSync(configPath)) {
@@ -94,10 +96,12 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): BridgeConfig {
 }
 
 /**
- * プロジェクト名から browserUrl を解決する
- * @param projectName 検索するプロジェクト名
- * @param configPath 設定ファイルのパス（省略可）
- * @returns プロジェクトの browserUrl。見つからない場合は null
+ * Resolves a browserUrl from a project name
+ *
+ * The config file is re-read on every call so that edits are picked up while the bridge is running.
+ * @param projectName The project name to look up
+ * @param configPath Path to the config file (optional)
+ * @returns The project's browserUrl, or null if not found
  */
 export function resolveProject(
   projectName: string,
