@@ -2,25 +2,24 @@
 import { Bridge } from './bridge'
 import { isValidBrowserUrl, resolveProject } from './config'
 
-/** パース済みの CLI 引数 */
 interface ParsedArgs {
-  /** Chrome リモートデバッグ URL */
+  /** Chrome remote debugging URL */
   browserUrl: string
-  /** `--project` で指定されたプロジェクト名(`--browserUrl` 直接指定時は undefined) */
+  /** Project name given by `--project` (undefined when only `--browserUrl` is used) */
   projectName?: string
-  /** chrome-devtools-mcp にそのまま渡すフラグ */
+  /** Flags passed through to chrome-devtools-mcp as is */
   passthroughArgs: string[]
 }
 
 /**
- * `--key value` または `--key=value` 形式の CLI 引数を取得する
+ * Extracts the value of a `--key value` or `--key=value` CLI argument
  *
- * `--key=value` 形式の場合は `=` 以降の値を返し、インデックスはそのまま。
- * `--key value` 形式の場合は次の引数を値として返し、インデックスを 1 進める。
- * @param args 引数配列
- * @param index 現在のインデックス（参照渡し用オブジェクト）
- * @param prefix `--key` 部分の文字列（例: `'--project'`）
- * @returns 値の文字列。マッチしない場合は null
+ * For `--key=value`, returns the part after `=` and leaves the index unchanged.
+ * For `--key value`, returns the next argument and advances the index by 1.
+ * @param args The argument array
+ * @param index The current index (an object so it can be advanced by reference)
+ * @param prefix The `--key` part (e.g. `'--project'`)
+ * @returns The value, or null if the current argument does not match
  */
 function extractArgValue(
   args: string[],
@@ -37,9 +36,9 @@ function extractArgValue(
 }
 
 /**
- * URL のバリデーションを行い、無効な場合はエラーメッセージを出力して終了する
- * @param url 検証する URL 文字列
- * @param label エラーメッセージに含めるラベル（例: `'project "foo"'`）
+ * Validates a URL and exits with an error message if it is invalid
+ * @param url The URL string to validate
+ * @param label Label for the error message (e.g. `'project "foo"'`)
  */
 function validateUrlOrExit(url: string, label: string): void {
   if (isValidBrowserUrl(url)) {
@@ -51,12 +50,13 @@ function validateUrlOrExit(url: string, label: string): void {
 }
 
 /**
- * CLI 引数をパースして browserUrl とパススルーフラグを返す
+ * Parses CLI arguments into a browserUrl and passthrough flags
  *
- * --project <name>: 設定ファイルからプロジェクト名で browserUrl を解決する
- * --browserUrl <url>: Chrome リモートデバッグ URL を直接指定する
- * その他のフラグはすべて chrome-devtools-mcp にそのまま渡す
- * @returns パース済みの引数
+ * --project <name>: resolves browserUrl from the config file by project name
+ * --browserUrl <url>: specifies the Chrome remote debugging URL directly
+ * All other flags are passed to chrome-devtools-mcp as is.
+ * Exits with status 1 on an unknown project, an invalid URL, or when neither option is given.
+ * @returns The parsed arguments
  */
 function parseArgs(): ParsedArgs {
   const rawArgs = process.argv.slice(2)
@@ -66,7 +66,6 @@ function parseArgs(): ParsedArgs {
 
   const index = { value: 0 }
   while (index.value < rawArgs.length) {
-    // --project の処理
     const parsedProjectName = extractArgValue(rawArgs, index, '--project')
     if (parsedProjectName !== null) {
       browserUrl = resolveProject(parsedProjectName)
@@ -85,7 +84,6 @@ function parseArgs(): ParsedArgs {
       continue
     }
 
-    // --browserUrl の処理
     const directUrl = extractArgValue(rawArgs, index, '--browserUrl')
     if (directUrl !== null) {
       browserUrl = directUrl
@@ -94,7 +92,7 @@ function parseArgs(): ParsedArgs {
       continue
     }
 
-    // 不明なフラグは chrome-devtools-mcp にそのまま渡す
+    // Anything else is passed through to chrome-devtools-mcp
     passthroughArgs.push(rawArgs[index.value])
     index.value++
   }
@@ -131,12 +129,12 @@ const bridge = new Bridge({
 
 bridge.start()
 
-// stdout の SIGPIPE / write エラーでプロセスがクラッシュしないようにする
+// Keep the process alive on stdout SIGPIPE / write errors
 process.stdout.on('error', (err: Error) => {
   process.stderr.write(`[bridge] stdout error: ${err.message}\n`)
 })
 
-// 未処理の例外・Rejection をログに記録して継続する（Bridge プロセスを生かし続ける）
+// Log uncaught exceptions and rejections and keep running, so the bridge stays alive
 process.on('uncaughtException', (err: Error) => {
   process.stderr.write(`[bridge] Uncaught exception: ${err.stack ?? err.message}\n`)
 })
@@ -145,7 +143,7 @@ process.on('unhandledRejection', (reason: unknown) => {
   process.stderr.write(`[bridge] Unhandled rejection: ${String(reason)}\n`)
 })
 
-// SIGPIPE を無視する（stdout の読み取り側が閉じられても継続）
+// Ignore SIGPIPE (keep running even if the reader of stdout closes)
 process.on('SIGPIPE', () => {
   process.stderr.write('[bridge] SIGPIPE received (ignored)\n')
 })

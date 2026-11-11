@@ -2,11 +2,9 @@ import http from 'node:http'
 import https from 'node:https'
 
 /**
- * Chrome の死活を定期ポーリングで監視するモニター
+ * Monitors Chrome liveness by polling
  *
- * `/json/version` エンドポイントを一定間隔でチェックし、接続状態の変化に応じて
- * `connected`、`disconnected`、`reconnected` イベントをディスパッチする。
- * HTTP / HTTPS の両方に対応する。
+ * Polls the `/json/version` endpoint at a fixed interval. Dispatches `connected` (first success), `disconnected`, and `reconnected` (success after a disconnect) when the connection state changes. Supports HTTP and HTTPS.
  */
 export class HealthMonitor extends EventTarget {
   private browserUrl: string
@@ -16,8 +14,8 @@ export class HealthMonitor extends EventTarget {
   private hasEverConnected = false
 
   /**
-   * @param browserUrl Chrome リモートデバッグ URL（例: http://127.0.0.1:9222）
-   * @param pollIntervalMs ポーリング間隔（ミリ秒、デフォルト: 3000）
+   * @param browserUrl Chrome remote debugging URL (e.g. http://127.0.0.1:9222)
+   * @param pollIntervalMs Polling interval in milliseconds (default: 3000)
    */
   constructor(browserUrl: string, pollIntervalMs = 3000) {
     super()
@@ -25,12 +23,11 @@ export class HealthMonitor extends EventTarget {
     this.pollIntervalMs = pollIntervalMs
   }
 
-  /** Chrome が現在到達可能かどうか */
+  /** Whether Chrome is currently reachable */
   get isConnected(): boolean {
     return this._isConnected
   }
 
-  /** ポーリングを開始する */
   start(): void {
     this.poll().catch((error: unknown) => {
       process.stderr.write(
@@ -46,7 +43,6 @@ export class HealthMonitor extends EventTarget {
     }, this.pollIntervalMs)
   }
 
-  /** ポーリングを停止する */
   stop(): void {
     if (!this.timer) {
       return
@@ -56,22 +52,22 @@ export class HealthMonitor extends EventTarget {
   }
 
   /**
-   * ポーリング対象の browserUrl を切り替える
+   * Switches the browserUrl being polled
    *
-   * config.json の再解決で browserUrl が変わった場合に呼び出す。
-   * ポーリング間隔・接続状態はリセットせず、次回以降の poll() が
-   * 新しい URL に対して checkHealth() を実行するようになるだけである。
-   * @param newUrl 新しいポーリング対象の URL
+   * Call this when re-resolving config.json yields a different browserUrl.
+   * The polling interval and connection state are not reset;
+   * subsequent poll() calls simply run checkHealth() against the new URL.
+   * @param newUrl The new URL to poll
    */
   updateBrowserUrl(newUrl: string): void {
     this.browserUrl = newUrl
   }
 
   /**
-   * Chrome の /json/version エンドポイントに HTTP(S) リクエストを送信する
+   * Sends an HTTP(S) request to Chrome's /json/version endpoint
    *
-   * URL スキームに応じて http / https モジュールを自動で切り替える。
-   * @returns Chrome が HTTP 200 で応答した場合は true
+   * Picks the http or https module from the URL scheme. A request error or a timeout counts as unhealthy.
+   * @returns true if Chrome responded with HTTP 200
    */
   private async checkHealth(): Promise<boolean> {
     return new Promise((resolve) => {
@@ -83,7 +79,6 @@ export class HealthMonitor extends EventTarget {
         return
       }
 
-      // URL スキームに応じて http / https を切り替える
       const transport = urlObj.protocol === 'https:' ? https : http
 
       const req = transport.get(urlObj.href, { timeout: 2000 }, (res) => {
@@ -100,7 +95,7 @@ export class HealthMonitor extends EventTarget {
     })
   }
 
-  /** Chrome をポーリングし、接続状態の変化に応じてイベントをディスパッチする */
+  /** Polls Chrome and dispatches events when the connection state changes */
   private async poll(): Promise<void> {
     const healthy = await this.checkHealth()
     if (healthy && !this._isConnected) {
