@@ -110,6 +110,16 @@ const MAX_PENDING_QUEUE_SIZE = 500
 /** How a replayed initialize request ended */
 type InitReplayOutcome = 'ok' | 'failed' | 'timeout' | 'exited'
 
+interface ChildGeneration {
+  process: ChildProcess
+  alive: boolean
+  ended: boolean
+  failed: boolean
+  termination: Promise<boolean> | null
+  inFlight: Set<number | string>
+  finishInit: ((outcome: InitReplayOutcome) => void) | null
+}
+
 const CHILD_EXITED_MESSAGE =
   'chrome-devtools-mcp exited before responding. The request was not retried because it may already have had side effects.'
 
@@ -127,8 +137,8 @@ export class Bridge {
   private readonly healthMonitor: HealthMonitor
   private readonly onExit?: () => void
 
-  private child: ChildProcess | null = null
-  private childAlive = false
+  private child: ChildGeneration | null = null
+  private stopped = false
 
   private reconnecting = false
 
@@ -146,15 +156,6 @@ export class Bridge {
 
   /** Messages received from the client during a reconnection */
   private pendingQueue: string[] = []
-
-  /** Whether the bridge is waiting for the initialize response from the child */
-  private waitingForInitResponse = false
-  /** Called when the replayed initialize request ends */
-  private initResponseCallback: ((outcome: InitReplayOutcome) => void) | null =
-    null
-
-  /** Ids of client requests written to the current child that it has not answered yet */
-  private inFlight = new Set<number | string>()
 
   /**
    * Cached result of resolving the chrome-devtools-mcp launch command
@@ -192,7 +193,7 @@ export class Bridge {
     // When Chrome first becomes reachable, start the child if it is not running
     // (covers Chrome being down at startup and coming up later)
     this.healthMonitor.addEventListener('connected', () => {
-      if (this.childAlive || this.reconnecting) {
+      if (this.child || this.reconnecting) {
         return
       }
       process.stderr.write(
@@ -220,7 +221,7 @@ export class Bridge {
 
       if (
         !this.healthMonitor.isConnected ||
-        this.childAlive ||
+        (this.child !== null && !this.child.failed) ||
         this.reconnecting
       ) {
         return
@@ -246,6 +247,7 @@ export class Bridge {
    * Stops the health monitor and terminates the child process.
    */
   stop(): void {
+    this.stopped = true
     this.healthMonitor.stop()
     if (this.recoveryTimer) {
       clearInterval(this.recoveryTimer)
@@ -255,9 +257,7 @@ export class Bridge {
       return
     }
 
-    this.child.kill('SIGTERM')
-    this.child = null
-    this.childAlive = false
+    void this.terminateChild(this.child)
   }
 
   /**
@@ -331,7 +331,7 @@ export class Bridge {
     return this.resolvedCmd
   }
 
-  private spawnChild(): void {
+  private spawnChild(): ChildGeneration {
     const { cmd, baseArgs } = this.resolveSpawnCommand()
     const args = [
       ...baseArgs,
@@ -347,64 +347,117 @@ export class Bridge {
     process.stderr.write(
       `[bridge] Spawning child: ${cmd} ${loggedArgs.join(' ')}\n`
     )
+    const child: ChildGeneration = {
+      process: spawn(cmd, args, { stdio: ['pipe', 'pipe', 'inherit'] }),
+      alive: false,
+      ended: false,
+      failed: false,
+      termination: null,
+      inFlight: new Set(),
+      finishInit: null,
+    }
+    this.child = child
 
-    this.child = spawn(cmd, args, {
-      stdio: ['pipe', 'pipe', 'inherit'],
+    const rl = child.process.stdout
+      ? createInterface({ input: child.process.stdout })
+      : null
+    const finish = (): void => {
+      if (child.ended) return
+      child.ended = true
+      child.alive = false
+      rl?.close()
+      this.failInFlightRequests(child.inFlight)
+      child.finishInit?.('exited')
+      if (this.child === child) this.child = null
+    }
+
+    child.process.once('spawn', () => {
+      if (this.child !== child || child.ended) return
+      child.alive = true
     })
-
-    this.childAlive = true
-    const inFlight = new Set<number | string>()
-    this.inFlight = inFlight
-
-    // Do not crash on stdin write errors (e.g. ERR_STREAM_DESTROYED)
-    if (this.child.stdin) {
-      this.child.stdin.on('error', (err: Error) => {
-        process.stderr.write(
-          `[bridge] Child stdin error (ignored): ${err.message}\n`
-        )
-      })
-    }
-
-    if (this.child.stdout) {
-      const rl = createInterface({ input: this.child.stdout })
-      rl.on('line', (line) => {
-        this.handleChildOutput(line, inFlight)
-      })
-      // Close readline when the child exits to avoid leaking it
-      this.child.once('exit', () => {
-        rl.close()
-      })
-    }
-
-    this.child.on('exit', (code) => {
-      process.stderr.write(`[bridge] Child process exited (code: ${code})\n`)
-      this.childAlive = false
-      this.child = null
-
-      this.failInFlightRequests(inFlight)
-
-      // If the child exits while waiting during a reconnect (e.g. a premature reconnect
-      // where Chrome went down again), release the wait now instead of waiting for the initialize timeout
-      if (this.waitingForInitResponse) {
-        this.waitingForInitResponse = false
-        this.initResponseCallback?.('exited')
-        this.initResponseCallback = null
-      }
-
-      // If Chrome is still reachable, restart immediately
-      if (!this.healthMonitor.isConnected || this.reconnecting) {
-        return
-      }
-
+    child.process.on('error', (error: Error) => {
+      if (this.child !== child || child.ended) return
+      process.stderr.write(`[bridge] Child process error: ${error.message}\n`)
+      child.failed = true
+      this.failInFlightRequests(child.inFlight)
+      child.finishInit?.('exited')
+      if (!child.alive) finish()
+    })
+    child.process.stdin?.on('error', (error: Error) => {
+      if (this.child !== child || child.ended) return
       process.stderr.write(
-        '[bridge] Chrome is still running. Restarting child process\n'
+        `[bridge] Child stdin error (ignored): ${error.message}\n`
       )
+    })
+    rl?.on('line', (line) => {
+      if (this.child !== child || child.ended || child.failed) return
+      this.handleChildOutput(line, child)
+    })
+    child.process.once('exit', (code) => {
+      if (this.child !== child || child.ended) return
+      process.stderr.write(`[bridge] Child process exited (code: ${code})\n`)
+      finish()
+      if (
+        child.failed ||
+        this.stopped ||
+        !this.healthMonitor.isConnected ||
+        this.reconnecting
+      )
+        return
       this.handleChromeReconnected().catch((error: unknown) => {
         process.stderr.write(
           `[bridge] Error during reconnection: ${String(error)}\n`
         )
       })
     })
+    return child
+  }
+
+  private terminateChild(child: ChildGeneration): Promise<boolean> {
+    child.failed = true
+    this.failInFlightRequests(child.inFlight)
+    child.finishInit?.('exited')
+    if (child.termination) return child.termination
+    if (child.ended) return Promise.resolve(true)
+    const termination = new Promise<boolean>((resolve) => {
+      let timer: ReturnType<typeof setTimeout>
+      const onEnd = (): void => {
+        clearTimeout(timer)
+        child.process.removeListener('exit', onEnd)
+        child.process.removeListener('close', onEnd)
+        resolve(child.ended)
+      }
+
+      const signal = (name: NodeJS.Signals): void => {
+        try {
+          child.process.kill(name)
+        } catch (error) {
+          process.stderr.write(
+            `[bridge] Child termination error: ${String(error)}\n`
+          )
+        }
+      }
+      child.process.once('exit', onEnd)
+      child.process.once('close', onEnd)
+      timer = setTimeout(() => {
+        process.stderr.write(
+          '[bridge] Child did not exit after SIGTERM; sending SIGKILL\n'
+        )
+        timer = setTimeout(() => {
+          process.stderr.write(
+            '[bridge] Child exit not confirmed; keeping ownership\n'
+          )
+          onEnd()
+        }, 5000)
+        signal('SIGKILL')
+      }, 5000)
+      signal('SIGTERM')
+    })
+    child.termination = termination
+    void termination.then(() => {
+      child.termination = null
+    })
+    return termination
   }
 
   /**
@@ -414,24 +467,21 @@ export class Bridge {
    * duplicate), and settles a pending initialize replay. Other lines are forwarded as is.
    * Lines are parsed only while the initialize response or an in-flight request still needs tracking.
    * @param line A JSON-RPC message line received from the child
-   * @param inFlight Ids of requests written to the child that emitted this line
+   * @param child The generation that emitted this line
    */
-  private handleChildOutput(
-    line: string,
-    inFlight: Set<number | string>
-  ): void {
+  private handleChildOutput(line: string, child: ChildGeneration): void {
     const trackingInit =
       this.initRequestId !== null &&
-      (!this.initResponseDelivered || this.waitingForInitResponse)
+      (!this.initResponseDelivered || child.finishInit !== null)
 
-    if (trackingInit || inFlight.size > 0) {
+    if (trackingInit || child.inFlight.size > 0) {
       const msg = tryParseJsonRpcLine(line)
       if (msg && isJsonRpcResponse(msg)) {
         if (trackingInit && msg.id === this.initRequestId) {
-          this.handleInitializeResponse(line, msg)
+          this.handleInitializeResponse(line, msg, child)
           return
         }
-        inFlight.delete(msg.id)
+        child.inFlight.delete(msg.id)
       }
     }
 
@@ -445,8 +495,13 @@ export class Bridge {
    * it as a replay duplicate, and then settles a pending replay wait.
    * @param line The raw response line
    * @param msg The parsed response
+   * @param child The generation that emitted the response
    */
-  private handleInitializeResponse(line: string, msg: JsonRpcResponse): void {
+  private handleInitializeResponse(
+    line: string,
+    msg: JsonRpcResponse,
+    child: ChildGeneration
+  ): void {
     if (this.initResponseDelivered) {
       process.stderr.write(
         '[bridge] Received initialize response (suppressed, client already received one)\n'
@@ -456,12 +511,7 @@ export class Bridge {
       process.stdout.write(line + '\n')
     }
 
-    if (!this.waitingForInitResponse) {
-      return
-    }
-    this.waitingForInitResponse = false
-    this.initResponseCallback?.(msg.error === undefined ? 'ok' : 'failed')
-    this.initResponseCallback = null
+    child.finishInit?.(msg.error === undefined ? 'ok' : 'failed')
   }
 
   private setupStdinProxy(): void {
@@ -531,7 +581,7 @@ export class Bridge {
    */
   private trackInFlight(msg: JsonRpcMessage | null): void {
     if (msg && isJsonRpcRequest(msg) && msg.method !== 'initialize') {
-      this.inFlight.add(msg.id)
+      this.child?.inFlight.add(msg.id)
     }
   }
 
@@ -576,8 +626,12 @@ export class Bridge {
       return
     }
 
-    if (this.child?.stdin) {
-      this.child.stdin.write(line + '\n')
+    if (
+      this.child &&
+      this.canUseChild(this.child) &&
+      this.child.process.stdin
+    ) {
+      this.child.process.stdin.write(line + '\n')
       this.trackInFlight(msg)
     } else {
       // The child is not running (e.g. it exited while Chrome was unreachable): answer requests with an error to keep the session alive
@@ -587,61 +641,57 @@ export class Bridge {
     }
   }
 
+  private canReconnect(): boolean {
+    return !this.reconnecting && !this.stopped
+  }
+
+  private canUseChild(child: ChildGeneration): boolean {
+    return this.child === child && !child.failed && !this.stopped
+  }
+
   /**
-   * Handles a Chrome reconnection
-   *
-   * Stops the existing child, spawns a new one, and replays the buffered
-   * MCP handshake messages to restore the session.
+   * Restarts the child and replays the buffered MCP handshake.
    */
   private async handleChromeReconnected(): Promise<void> {
-    if (this.reconnecting) return
+    if (!this.canReconnect()) return
     this.reconnecting = true
 
     try {
-      if (this.child && this.childAlive) {
+      if (this.child) {
         process.stderr.write('[bridge] Stopping existing child process\n')
-        const dying = this.child
-        await new Promise<void>((resolve) => {
-          // Continue anyway if it does not exit in time
-          // (resolve() is safe to call more than once; later calls are ignored)
-          const fallback = setTimeout(() => {
-            process.stderr.write(
-              '[bridge] Timed out waiting for child to exit, continuing\n'
-            )
-            resolve()
-          }, 5000)
-          dying.once('exit', () => {
-            clearTimeout(fallback)
-            resolve()
-          })
-          dying.kill('SIGTERM')
-        })
+        if (!(await this.terminateChild(this.child))) {
+          const pending = this.pendingQueue
+          this.pendingQueue = []
+          for (const line of pending) {
+            const msg = tryParseJsonRpcLine(line)
+            if (msg) this.sendDisconnectedError(msg)
+          }
+          return
+        }
       }
-
-      this.spawnChild()
-      const child = this.child
+      if (this.stopped) return
+      const child = this.spawnChild()
       let replayedInitLine: string | null = null
 
-      if (this.initRequest && child?.stdin) {
+      if (this.initRequest && child.process.stdin) {
         process.stderr.write('[bridge] Replaying initialize to child\n')
-        replayedInitLine = this.initRequest
-        child.stdin.write(replayedInitLine + '\n')
-
+        const replayed = this.initRequest
+        replayedInitLine = replayed
         const outcome = await new Promise<InitReplayOutcome>((resolve) => {
           const timeout = setTimeout(() => {
-            this.waitingForInitResponse = false
-            this.initResponseCallback = null
+            child.finishInit = null
             process.stderr.write(
               '[bridge] Timed out waiting for initialize response\n'
             )
             resolve('timeout')
           }, 10_000)
 
-          this.waitingForInitResponse = true
-          this.initResponseCallback = (result) => {
+          child.finishInit = (result) => {
+            child.finishInit = null
             clearTimeout(timeout)
             resolve(result)
           }
+          child.process.stdin?.write(replayed + '\n')
         })
 
         // Replay notifications/initialized only after a successful initialize (child.stdin may have closed during the await, so check writable)
@@ -649,11 +699,15 @@ export class Bridge {
           process.stderr.write(
             `[bridge] Initialize replay ended with "${outcome}". Not replaying notifications/initialized\n`
           )
-        } else if (this.initializedNotif && child.stdin.writable) {
+        } else if (
+          this.initializedNotif &&
+          this.canUseChild(child) &&
+          child.process.stdin.writable
+        ) {
           process.stderr.write(
             '[bridge] Replaying notifications/initialized to child\n'
           )
-          child.stdin.write(this.initializedNotif + '\n')
+          child.process.stdin.write(this.initializedNotif + '\n')
         }
       }
 
@@ -664,8 +718,8 @@ export class Bridge {
         if (pendingLine === replayedInitLine) {
           continue
         }
-        if (this.child?.stdin?.writable) {
-          this.child.stdin.write(pendingLine + '\n')
+        if (this.canUseChild(child) && child.process.stdin?.writable) {
+          child.process.stdin.write(pendingLine + '\n')
           this.trackInFlight(tryParseJsonRpcLine(pendingLine))
         } else {
           const parsed = tryParseJsonRpcLine(pendingLine)

@@ -13,7 +13,7 @@ interface FakeChild {
   stdin: FakeStdin
   stdout: object
   emit: (event: string, ...args: unknown[]) => boolean
-  kill: () => boolean
+  kill: (signal?: string) => boolean
 }
 
 interface FakeReadline {
@@ -52,6 +52,7 @@ vi.mock('node:child_process', () => ({
       child.emit('exit', 0)
       return true
     }
+    queueMicrotask(() => child.emit('spawn'))
     h.spawned.push(child)
     return child
   }),
@@ -139,6 +140,7 @@ const initializedNotification = {
 function startWithLiveChild(): FakeChild {
   bridge.start()
   monitor().isConnected = true
+  h.spawned[0].emit('spawn')
   return h.spawned[0]
 }
 
@@ -204,9 +206,7 @@ describe('Bridge diagnostics redaction', () => {
       const output = stderrSpy.mock.calls
         .map(([chunk]) => String(chunk))
         .join('')
-      expect(output).toContain(
-        '--browserUrl=http://***:***@h:1/?t=*** --k=***'
-      )
+      expect(output).toContain('--browserUrl=http://***:***@h:1/?t=*** --k=***')
       for (const secret of ['u:p', 't=s', 'k=v']) {
         expect(output).not.toContain(secret)
       }
@@ -379,6 +379,192 @@ describe('Bridge lifecycle: in-flight requests', () => {
     h.spawned[1].emit('exit', 1)
 
     expect(toClient()).toEqual([disconnected(7)])
+  })
+})
+
+describe('Bridge lifecycle: child generations', () => {
+  it('recovers on the next recovery tick after a spawn error without exit', async () => {
+    bridge.start()
+    const failed = h.spawned[0]
+    monitor().isConnected = true
+    clientSends(initRequest)
+    clientSends({ jsonrpc: '2.0', id: 7, method: 'tools/list' })
+
+    failed.emit('error', new Error('spawn npx ENOENT'))
+
+    expect(readlineFor(failed.stdout).close).toHaveBeenCalledOnce()
+    expect(toClient()).toEqual([
+      {
+        jsonrpc: '2.0',
+        id: 7,
+        error: { code: -32_000, message: DISCONNECTED_MESSAGE },
+      },
+    ])
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(h.spawned).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(h.spawned).toHaveLength(2)
+    failed.emit('exit', 1)
+    childSays(failed, initResult)
+    await flush()
+    expect(toClient()).not.toContainEqual(initResult)
+    childSays(h.spawned[1], initResult)
+    await flush()
+    expect(toClient()).toContainEqual(initResult)
+  })
+
+  it('does not restart a child that is still waiting to spawn', async () => {
+    bridge.start()
+    chromeBecomesAvailable()
+    await flush()
+    expect(h.spawned).toHaveLength(1)
+  })
+
+  it('bounds retries after repeated spawn errors and releases the replay wait', async () => {
+    startWithoutChild()
+    clientSends(initRequest)
+    chromeBecomesAvailable()
+    clientSends({ jsonrpc: '2.0', id: 8, method: 'tools/list' })
+    h.spawned[1].emit('error', new Error('spawn npx EACCES'))
+    await flush()
+    expect(toClient()).toEqual([
+      expect.objectContaining({ id: 8, error: expect.anything() }),
+    ])
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(h.spawned).toHaveLength(3)
+    h.spawned[2].emit('error', new Error('spawn npx ENOENT'))
+    await flush()
+    await vi.advanceTimersByTimeAsync(4999)
+    expect(h.spawned).toHaveLength(3)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(h.spawned).toHaveLength(4)
+  })
+
+  it('ignores stale exit, error and output events while the replacement awaits initialize', async () => {
+    const first = startWithLiveChild()
+    completeHandshake(first)
+    restartChildWhileChromeIsUp()
+    await flush()
+    const replacement = h.spawned[1]
+    clientSends({ jsonrpc: '2.0', id: 9, method: 'tools/list' })
+    first.emit('exit', 1)
+    first.emit('error', new Error('late error'))
+    childSays(first, initResult)
+    childSays(first, { jsonrpc: '2.0', id: 9, result: 'stale' })
+    await flush()
+    expect(toChild(replacement)).toEqual([initRequest])
+    expect(toClient()).toEqual([initResult])
+
+    childSays(replacement, initResult)
+    await flush()
+    expect(toChild(replacement)).toEqual([
+      initRequest,
+      initializedNotification,
+      { jsonrpc: '2.0', id: 9, method: 'tools/list' },
+    ])
+    expect(h.spawned).toHaveLength(2)
+    clientSends({ jsonrpc: '2.0', id: 10, method: 'tools/list' })
+    expect(toChild(replacement)).toContainEqual({
+      jsonrpc: '2.0',
+      id: 10,
+      method: 'tools/list',
+    })
+  })
+
+  it('keeps replacement requests in flight when a stale child answers the same id', async () => {
+    const first = startWithLiveChild()
+    completeHandshake(first)
+    restartChildWhileChromeIsUp()
+    await flush()
+    const replacement = h.spawned[1]
+    childSays(replacement, initResult)
+    await flush()
+    stdoutLines.length = 0
+    clientSends({ jsonrpc: '2.0', id: 42, method: 'tools/list' })
+    childSays(first, { jsonrpc: '2.0', id: 42, result: {} })
+    monitor().isConnected = false
+    replacement.emit('exit', 1)
+    expect(toClient()).toEqual([
+      {
+        jsonrpc: '2.0',
+        id: 42,
+        error: { code: -32_000, message: DISCONNECTED_MESSAGE },
+      },
+    ])
+  })
+
+  it('escalates SIGTERM to SIGKILL and waits for exit before spawning', async () => {
+    const first = startWithLiveChild()
+    completeHandshake(first)
+    first.kill = vi.fn(() => true)
+    restartChildWhileChromeIsUp()
+    expect(first.kill).toHaveBeenCalledWith('SIGTERM')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(first.kill).toHaveBeenCalledWith('SIGKILL')
+    expect(h.spawned).toHaveLength(1)
+    first.emit('exit', null, 'SIGKILL')
+    await flush()
+    expect(h.spawned).toHaveLength(2)
+    expect(readlineFor(first.stdout).close).toHaveBeenCalledOnce()
+    childSays(h.spawned[1], initResult)
+    await flush()
+  })
+
+  it('retains ownership when neither signal confirms exit', async () => {
+    const first = startWithLiveChild()
+    first.kill = vi.fn(() => false)
+    restartChildWhileChromeIsUp()
+    clientSends({ jsonrpc: '2.0', id: 12, method: 'tools/list' })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(toClient()).toEqual([
+      expect.objectContaining({ id: 12, error: expect.anything() }),
+    ])
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(h.spawned).toHaveLength(1)
+    first.emit('exit', 0)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(h.spawned).toHaveLength(2)
+  })
+
+  it('does not treat a kill error as proof of exit', async () => {
+    const first = startWithLiveChild()
+    first.kill = vi.fn(() => {
+      first.emit('error', new Error('kill EPERM'))
+      return false
+    })
+    restartChildWhileChromeIsUp()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(h.spawned).toHaveLength(1)
+    expect(first.kill).toHaveBeenCalledWith('SIGKILL')
+    first.emit('exit', 1)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(h.spawned).toHaveLength(2)
+  })
+
+  it('cancels reconnect when stopped while waiting for the old child', async () => {
+    const first = startWithLiveChild()
+    first.kill = vi.fn(() => true)
+    restartChildWhileChromeIsUp()
+    bridge.stop()
+    first.emit('exit', 0)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(h.spawned).toHaveLength(1)
+  })
+
+  it('releases initialize replay on stop without draining work into the stopping child', async () => {
+    const first = startWithLiveChild()
+    completeHandshake(first)
+    restartChildWhileChromeIsUp()
+    await flush()
+    const replacement = h.spawned[1]
+    replacement.kill = vi.fn(() => true)
+    clientSends({ jsonrpc: '2.0', id: 11, method: 'tools/list' })
+    bridge.stop()
+    await flush()
+    expect(toChild(replacement)).toEqual([initRequest])
+    replacement.emit('exit', 0)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(h.spawned).toHaveLength(2)
   })
 })
 
