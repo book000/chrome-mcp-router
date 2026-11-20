@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { spawn } from 'node:child_process'
 import { Bridge, parseJsonRpcMessage } from '../bridge'
 
 interface FakeStdin {
@@ -188,6 +189,35 @@ afterEach(() => {
   stdoutSpy.mockRestore()
   stderrSpy.mockRestore()
   vi.useRealTimers()
+})
+
+describe('Bridge diagnostics redaction', () => {
+  it('does not log credentials, query values, or argument values but spawns with the real ones', () => {
+    const secretBridge = new Bridge({
+      browserUrl: 'http://u:p@h:1/?t=s',
+      passthroughArgs: ['--k=v'],
+    })
+    vi.mocked(spawn).mockClear()
+    try {
+      secretBridge.start()
+
+      const output = stderrSpy.mock.calls
+        .map(([chunk]) => String(chunk))
+        .join('')
+      expect(output).toContain(
+        '--browserUrl=http://***:***@h:1/?t=*** --k=***'
+      )
+      for (const secret of ['u:p', 't=s', 'k=v']) {
+        expect(output).not.toContain(secret)
+      }
+      expect(vi.mocked(spawn).mock.calls[0][1]).toEqual([
+        '--browserUrl=http://u:p@h:1/?t=s',
+        '--k=v',
+      ])
+    } finally {
+      secretBridge.stop()
+    }
+  })
 })
 
 describe('Bridge lifecycle: initialize response', () => {

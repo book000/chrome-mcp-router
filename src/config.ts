@@ -90,7 +90,12 @@ export function loadConfig(configPath = DEFAULT_CONFIG_PATH): BridgeConfig {
     process.stderr.write(
       `[bridge] Failed to load config file: ${configPath}\n`
     )
-    process.stderr.write(`[bridge] ${String(error)}\n`)
+    // JSON.parse errors quote file content, which may hold credentials
+    const reason =
+      error instanceof SyntaxError
+        ? 'invalid JSON (file content not shown)'
+        : String(error)
+    process.stderr.write(`[bridge] ${reason}\n`)
     return { projects: {} }
   }
 }

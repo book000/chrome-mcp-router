@@ -41,7 +41,8 @@ Data flow: `MCP client (stdin/stdout) <-> Bridge <-> chrome-devtools-mcp (child 
 - `src/bridge.ts`: the `Bridge` class. Spawns and supervises the child, proxies JSON-RPC line by line, buffers `initialize` and `notifications/initialized` for replay, and queues client messages during a reconnect (bounded by `MAX_PENDING_QUEUE_SIZE`). It forwards the replayed `initialize` response when the client has not received one, and answers requests still unanswered when the child exits with an error instead of replaying them. With a project name, it re-resolves `browserUrl` every 5 seconds and restarts the child if it changed.
 - `src/health-monitor.ts`: `HealthMonitor extends EventTarget`. Polls Chrome every 3 seconds and dispatches `connected` / `disconnected` / `reconnected`.
 - `src/config.ts`: loads and validates the config file, resolves a project name to a `browserUrl`, and validates that a URL is `http(s)`.
-- `src/__tests__/`: Vitest unit tests for `config.ts` and `health-monitor.ts`. `bridge.test.ts` covers `parseJsonRpcMessage` and the `Bridge` lifecycle (initialize replay, in-flight request failure) with a mocked child process, health monitor, and readline; still verify reconnect behavior manually by killing and restarting Chrome against a live `--browserUrl`.
+- `src/redact.ts`: `redactUrl` / `redactArgs`, pure helpers that mask URL userinfo, query values, and passthrough argument values in stderr diagnostics (never throw).
+- `src/__tests__/`: Vitest unit tests for `config.ts`, `health-monitor.ts`, and `redact.ts`. `bridge.test.ts` covers `parseJsonRpcMessage` and the `Bridge` lifecycle (initialize replay, in-flight request failure) with a mocked child process, health monitor, and readline; still verify reconnect behavior manually by killing and restarting Chrome against a live `--browserUrl`.
 
 ## Conventions
 

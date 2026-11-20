@@ -83,6 +83,25 @@ describe('loadConfig', () => {
     stderrSpy.mockRestore()
   })
 
+  it('does not echo malformed file content to stderr', () => {
+    mockExistsSync.mockReturnValue(true)
+    mockReadFileSync.mockReturnValue('http://u:p@h/?t=s')
+
+    const stderrSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockReturnValue(true)
+
+    const config = loadConfig('/tmp/secret.json')
+
+    const output = stderrSpy.mock.calls.map(([chunk]) => String(chunk)).join('')
+    stderrSpy.mockRestore()
+    expect(config).toEqual({ projects: {} })
+    expect(output).toBe(
+      '[bridge] Failed to load config file: /tmp/secret.json\n' +
+        '[bridge] invalid JSON (file content not shown)\n'
+    )
+  })
+
   it('returns an empty config when the object has no projects', () => {
     mockExistsSync.mockReturnValue(true)
     mockReadFileSync.mockReturnValue(JSON.stringify({ notProjects: {} }))

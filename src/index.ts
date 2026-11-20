@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Bridge } from './bridge'
 import { isValidBrowserUrl, resolveProject } from './config'
+import { redactUrl } from './redact'
 
 interface ParsedArgs {
   /** Chrome remote debugging URL */
@@ -44,7 +45,7 @@ function validateUrlOrExit(url: string, label: string): void {
   if (isValidBrowserUrl(url)) {
     return
   }
-  process.stderr.write(`Error: Invalid URL for ${label}: ${url}\n`)
+  process.stderr.write(`Error: Invalid URL for ${label}: ${redactUrl(url)}\n`)
   process.stderr.write('URL must start with http:// or https://\n')
   process.exit(1)
 }

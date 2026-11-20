@@ -2,6 +2,7 @@ import { execSync, type ChildProcess, spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { isValidBrowserUrl, resolveProject } from './config'
 import { HealthMonitor } from './health-monitor'
+import { redactArgs, redactUrl } from './redact'
 
 interface JsonRpcBase {
   jsonrpc: '2.0'
@@ -274,7 +275,7 @@ export class Bridge {
 
     if (!resolved) {
       process.stderr.write(
-        `[bridge] Project "${projectName}" no longer found in config. Keeping current browserUrl: ${this.browserUrl}\n`
+        `[bridge] Project "${projectName}" no longer found in config. Keeping current browserUrl: ${redactUrl(this.browserUrl)}\n`
       )
       return
     }
@@ -285,13 +286,13 @@ export class Bridge {
 
     if (!isValidBrowserUrl(resolved)) {
       process.stderr.write(
-        `[bridge] Resolved browserUrl for project "${projectName}" is invalid: ${resolved}. Keeping current browserUrl: ${this.browserUrl}\n`
+        `[bridge] Resolved browserUrl for project "${projectName}" is invalid: ${redactUrl(resolved)}. Keeping current browserUrl: ${redactUrl(this.browserUrl)}\n`
       )
       return
     }
 
     process.stderr.write(
-      `[bridge] browserUrl changed for project "${projectName}": ${this.browserUrl} -> ${resolved}. Restarting child process\n`
+      `[bridge] browserUrl changed for project "${projectName}": ${redactUrl(this.browserUrl)} -> ${redactUrl(resolved)}. Restarting child process\n`
     )
     this.browserUrl = resolved
     this.healthMonitor.updateBrowserUrl(this.browserUrl)
@@ -338,7 +339,14 @@ export class Bridge {
       ...this.passthroughArgs,
     ]
 
-    process.stderr.write(`[bridge] Spawning child: ${cmd} ${args.join(' ')}\n`)
+    const loggedArgs = [
+      ...baseArgs,
+      `--browserUrl=${redactUrl(this.browserUrl)}`,
+      ...redactArgs(this.passthroughArgs),
+    ]
+    process.stderr.write(
+      `[bridge] Spawning child: ${cmd} ${loggedArgs.join(' ')}\n`
+    )
 
     this.child = spawn(cmd, args, {
       stdio: ['pipe', 'pipe', 'inherit'],
