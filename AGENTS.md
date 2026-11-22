@@ -30,7 +30,7 @@ pnpm clean          # remove build/ and *.tsbuildinfo
 ```
 
 - Use **pnpm** (version pinned by `packageManager` in `package.json`); do not use `npm` or `yarn`. Node.js is pinned in `.node-version` and `engines`.
-- CI (`.github/workflows/nodejs-ci-pnpm.yml`, reusable workflow from `book000/templates`) runs the build, lint, and test scripts. `pnpm typecheck` is not run in CI and currently fails because of type errors in the Vitest typings and `health-monitor.test.ts`.
+- CI (`.github/workflows/nodejs-ci-pnpm.yml`) runs the build, lint, and test scripts through the reusable workflow from `book000/templates`, plus `pnpm typecheck` in a separate job. `tsconfig.json` uses ES modules and bundler resolution for type-checking source and Vitest tests; `tsconfig.build.json` overrides these settings to preserve the CommonJS production build and excludes tests.
 - `.github/workflows/release.yml` runs on every push to the default branch (`master`): it bumps the version from the commit prefix (`feat` minor; `fix`, `docs`, `chore`, `refactor`, `build`, `ci`, `revert`, `style`, `test`, `perf` patch; `release` or a breaking change major; any other or non-conventional commit defaults to minor) and publishes to npm. Choose the commit type deliberately.
 
 ## Architecture

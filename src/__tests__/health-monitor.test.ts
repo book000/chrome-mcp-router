@@ -1,4 +1,12 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import {
+  describe,
+  expect,
+  it,
+  vi,
+  beforeEach,
+  afterEach,
+  type MockInstance,
+} from 'vitest'
 import http from 'node:http'
 import { HealthMonitor } from '../health-monitor'
 
@@ -10,8 +18,7 @@ vi.mock('node:http', () => ({
 
 const mockHttpGet = vi.mocked(http.get)
 
-// Suppress process.stderr.write
-let stderrSpy: ReturnType<typeof vi.spyOn<typeof process.stderr, 'write'>>
+let stderrSpy: MockInstance<typeof process.stderr.write>
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -24,24 +31,21 @@ afterEach(() => {
   stderrSpy.mockRestore()
 })
 
-function mockHttpResponse(statusCode: number): void {
+function mockHttpResponse(statusCode: number): ReturnType<typeof vi.fn> {
+  const resume = vi.fn()
+  const res = {
+    statusCode,
+    resume,
+  } as unknown as http.IncomingMessage
   mockHttpGet.mockImplementation((_url, _opts, callback) => {
-    const res = {
-      statusCode,
-      resume: vi.fn(),
-    }
-    if (typeof _opts === 'function') {
-      // The callback is the second argument
-      _opts(res)
-    } else if (typeof callback === 'function') {
-      callback(res as never)
-    }
+    callback?.(res)
     const req = {
       on: vi.fn(),
       destroy: vi.fn(),
     }
     return req as never
   })
+  return resume
 }
 
 function mockHttpError(): void {
@@ -62,7 +66,7 @@ function mockHttpError(): void {
 
 describe('HealthMonitor', () => {
   it('dispatches connected on the first successful poll', async () => {
-    mockHttpResponse(200)
+    const resume = mockHttpResponse(200)
 
     const monitor = new HealthMonitor('http://127.0.0.1:9222', 1000)
     const connectedHandler = vi.fn()
@@ -75,6 +79,7 @@ describe('HealthMonitor', () => {
 
     expect(connectedHandler).toHaveBeenCalledTimes(1)
     expect(monitor.isConnected).toBe(true)
+    expect(resume).toHaveBeenCalledTimes(1)
 
     monitor.stop()
   })

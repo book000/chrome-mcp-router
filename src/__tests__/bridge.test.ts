@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from 'vitest'
 import { spawn } from 'node:child_process'
 import { Bridge, parseJsonRpcMessage } from '../bridge'
 
@@ -85,8 +93,8 @@ const DISCONNECTED_MESSAGE =
 
 let bridge: Bridge
 let stdoutLines: string[]
-let stdoutSpy: ReturnType<typeof vi.spyOn<typeof process.stdout, 'write'>>
-let stderrSpy: ReturnType<typeof vi.spyOn<typeof process.stderr, 'write'>>
+let stdoutSpy: MockInstance<typeof process.stdout.write>
+let stderrSpy: MockInstance<typeof process.stderr.write>
 
 function monitor(): FakeMonitor {
   if (!h.state.monitor) throw new Error('HealthMonitor was not constructed')
