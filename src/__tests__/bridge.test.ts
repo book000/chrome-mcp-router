@@ -8,6 +8,7 @@ import {
   type MockInstance,
 } from 'vitest'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
 import { Bridge, parseJsonRpcMessage } from '../bridge'
 
 interface FakeStdin {
@@ -42,7 +43,6 @@ const h = await vi.hoisted(async () => {
 })
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
   spawn: vi.fn(() => {
     const child = new h.EventEmitter() as unknown as FakeChild
     const written: string[] = []
@@ -201,6 +201,23 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+describe('Child dependency compatibility', () => {
+  it('rejects an unexpected child version before spawning', () => {
+    vi.mocked(spawn).mockClear()
+    const read = vi
+      .spyOn(fs, 'readFileSync')
+      .mockReturnValue(JSON.stringify({ version: '0.0.0', bin: {} }))
+    try {
+      expect(() => {
+        bridge.start()
+      }).toThrow('expected version 1.13.0')
+      expect(spawn).not.toHaveBeenCalled()
+    } finally {
+      read.mockRestore()
+    }
+  })
+})
+
 describe('Bridge diagnostics redaction', () => {
   it('does not log credentials, query values, or argument values but spawns with the real ones', () => {
     const secretBridge = new Bridge({
@@ -218,7 +235,10 @@ describe('Bridge diagnostics redaction', () => {
       for (const secret of ['u:p', 't=s', 'k=v']) {
         expect(output).not.toContain(secret)
       }
+      expect(vi.mocked(spawn).mock.calls[0][0]).toBe(process.execPath)
+      expect(output).toContain('chrome-devtools-mcp 1.13.0')
       expect(vi.mocked(spawn).mock.calls[0][1]).toEqual([
+        expect.stringContaining('chrome-devtools-mcp.js'),
         '--browserUrl=http://u:p@h:1/?t=s',
         '--k=v',
       ])

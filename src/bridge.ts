@@ -1,4 +1,7 @@
-import { execSync, type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
+import fs from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { isValidBrowserUrl, resolveProject } from './config'
 import { HealthMonitor } from './health-monitor'
@@ -157,14 +160,6 @@ export class Bridge {
   /** Messages received from the client during a reconnection */
   private pendingQueue: string[] = []
 
-  /**
-   * Cached result of resolving the chrome-devtools-mcp launch command
-   *
-   * Runs chrome-devtools-mcp directly if it is in PATH, otherwise falls back to npx.
-   * Resolved on the first spawnChild() and reused afterwards.
-   */
-  private resolvedCmd: { cmd: string; baseArgs: string[] } | null = null
-
   constructor(options: BridgeOptions) {
     this.browserUrl = options.browserUrl
     this.projectName = options.projectName
@@ -303,50 +298,46 @@ export class Bridge {
     })
   }
 
-  /**
-   * Resolves and caches the chrome-devtools-mcp launch command
-   *
-   * Runs chrome-devtools-mcp directly if it is found in PATH, otherwise falls back to npx.
-   * execSync runs only on the first call; later calls return the cached result.
-   * @returns The command and its base arguments
-   */
-  private resolveSpawnCommand(): { cmd: string; baseArgs: string[] } {
-    if (this.resolvedCmd) return this.resolvedCmd
-
-    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
-    try {
-      execSync(`${whichCmd} chrome-devtools-mcp`, { stdio: 'pipe' })
-      process.stderr.write('[bridge] Found chrome-devtools-mcp in PATH\n')
-      this.resolvedCmd = { cmd: 'chrome-devtools-mcp', baseArgs: [] }
-    } catch {
-      process.stderr.write(
-        '[bridge] chrome-devtools-mcp not in PATH, using npx\n'
-      )
-      this.resolvedCmd = {
-        cmd: 'npx',
-        baseArgs: ['-y', 'chrome-devtools-mcp'],
-      }
-    }
-
-    return this.resolvedCmd
-  }
-
   private spawnChild(): ChildGeneration {
-    const { cmd, baseArgs } = this.resolveSpawnCommand()
+    // The published CLI is CommonJS; resolve from this module rather than the caller's directory.
+    // eslint-disable-next-line unicorn/prefer-module
+    const packagePath = createRequire(__filename).resolve(
+      'chrome-devtools-mcp/package.json'
+    )
+    const metadata: unknown = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
+    if (
+      typeof metadata !== 'object' ||
+      metadata === null ||
+      !('version' in metadata) ||
+      metadata.version !== '1.13.0' ||
+      !('bin' in metadata) ||
+      typeof metadata.bin !== 'object' ||
+      metadata.bin === null ||
+      !('chrome-devtools-mcp' in metadata.bin) ||
+      metadata.bin['chrome-devtools-mcp'] !==
+        './out/Default/gen/src/bin/chrome-devtools-mcp.js'
+    ) {
+      throw new Error(
+        'Unsupported chrome-devtools-mcp installation; expected version 1.13.0'
+      )
+    }
+    const entry = path.resolve(
+      path.dirname(packagePath),
+      metadata.bin['chrome-devtools-mcp']
+    )
     const args = [
-      ...baseArgs,
+      entry,
       `--browserUrl=${this.browserUrl}`,
       ...this.passthroughArgs,
     ]
-
     const loggedArgs = [
-      ...baseArgs,
       `--browserUrl=${redactUrl(this.browserUrl)}`,
       ...redactArgs(this.passthroughArgs),
     ]
     process.stderr.write(
-      `[bridge] Spawning child: ${cmd} ${loggedArgs.join(' ')}\n`
+      `[bridge] Spawning chrome-devtools-mcp ${metadata.version}: ${loggedArgs.join(' ')}\n`
     )
+    const cmd = process.execPath
     const child: ChildGeneration = {
       process: spawn(cmd, args, { stdio: ['pipe', 'pipe', 'inherit'] }),
       alive: false,
