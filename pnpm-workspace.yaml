@@ -1,4 +1,5 @@
 allowBuilds:
+  chrome-devtools-mcp: true
   esbuild: true
 minimumReleaseAgeExclude:
   - '@book000/*'
