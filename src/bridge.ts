@@ -1,6 +1,5 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import fs from 'node:fs'
-import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { isValidBrowserUrl, resolveProject } from './config'
@@ -299,11 +298,9 @@ export class Bridge {
   }
 
   private spawnChild(): ChildGeneration {
-    // The published CLI is CommonJS; resolve from this module rather than the caller's directory.
+    // The published CommonJS CLI resolves dependencies relative to this module.
     // eslint-disable-next-line unicorn/prefer-module
-    const packagePath = createRequire(__filename).resolve(
-      'chrome-devtools-mcp/package.json'
-    )
+    const packagePath = require.resolve('chrome-devtools-mcp/package.json')
     const metadata: unknown = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
     if (
       typeof metadata !== 'object' ||
