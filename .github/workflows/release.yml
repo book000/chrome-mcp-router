@@ -59,6 +59,15 @@ jobs:
       - name: 🏃 Build
         run: pnpm run build
 
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+      - name: Type check
+        run: pnpm typecheck
+
       - name: 🏷 Bump version and push tag
         id: tag-version
         uses: mathieudutour/github-tag-action@a22cf08638b34d5badda920f9daf6e72c477b07b # v6.2
